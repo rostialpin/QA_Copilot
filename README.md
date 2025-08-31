@@ -1,114 +1,222 @@
-# qa-copilot
-QA Assistant (manage creation of manual and automated tests based on JIRA board
+# QA Copilot 🤖
 
-The core components are well-scoped:
+An AI-powered QA automation assistant that streamlines test case generation, TestRail integration, and Cypress test automation.
 
-JIRA and TestRail both have well-documented REST APIs
-Gemini 2.0 Pro has excellent API access for test generation
-The workflow is linear and clear
+## Features ✨
 
-Enhanced Version - "QA Copilot"
-Here's my suggested enhanced version that's both achievable and more impressive:
-Core Features (Day 1-2)
+- **JIRA Integration**: Pull tickets directly from JIRA boards and sprints
+- **AI Test Generation**: Generate comprehensive test cases using Google Gemini 2.5 AI models
+- **TestRail Integration**: Push test cases to TestRail with full traceability and visual confirmation
+- **Cypress Automation**: Convert test cases to executable Cypress tests with TestRail references
+- **Mock Mode**: Full functionality with mock data when APIs aren't configured
+- **Smart Model Selection**: Choose between Gemini 2.5 Flash (fast) or Pro (highest quality)
+- **Complete Workflow**: Seamless flow from JIRA → AI Test Cases → TestRail → Cypress
+- **Visual Feedback**: Success confirmations, test case IDs, and direct TestRail links
 
-Sprint Test Coverage Dashboard
+## Quick Start 🚀
 
-Connect to JIRA to fetch current sprint tickets
-Automatically categorize tickets by type (bug, feature, story)
-Generate test cases using Gemini 2.0 Pro based on ticket descriptions and acceptance criteria
-Show test coverage gaps visually
+### Prerequisites
 
+- Node.js 18+ 
+- npm or yarn
+- Git
 
-Smart Test Case Generation
+### Installation
 
-Use Gemini to generate multiple test case types (positive, negative, edge cases)
-Include test data suggestions
-Generate BDD-style scenarios (Given/When/Then format)
-One-click push to TestRail with proper mapping
+1. Clone the repository:
+```bash
+git clone <your-new-repo-url>
+cd qa-copilot
+```
 
+2. Install dependencies:
+```bash
+npm run setup
+```
 
-Duplicate Detection (simplified version)
+3. Configure environment variables:
 
-Use embeddings to find similar existing test cases
-Show similarity percentage before creating
+**Primary Method: Using shell configuration (Recommended)**
+```bash
+# Add to ~/.zshrc or ~/.bashrc
+export JIRA_URL="https://your-company.atlassian.net"
+export JIRA_EMAIL="your-email@company.com"
+export JIRA_API_TOKEN="your-jira-api-token"
+export TESTRAIL_URL="https://your-company.testrail.io"
+export TESTRAIL_EMAIL="your-email@company.com"
+export TESTRAIL_TOKEN="your-testrail-api-token"
+export GOOGLE_API_KEY="your-google-api-key"
+export GEMINI_MODEL="gemini-2.5-flash"  # or gemini-2.5-pro
 
+# Reload shell configuration
+source ~/.zshrc
+```
 
+**Alternative: Using .env files (Optional)**
+```bash
+# Only if you prefer .env files over shell configuration
+# Copy the example files
+cp .env.example backend/.env
+cp .env.example frontend/.env
 
-Advanced Features (Day 3-4)
+# Edit the files with your API credentials
+# Note: Shell environment variables take precedence over .env files
+```
 
-Cypress Test Generator
+4. Start the application:
+```bash
+npm run dev
+```
 
-Parse existing Cypress test structure from GitHub
-Generate draft Cypress tests with:
+5. Open your browser to http://localhost:5173
 
-Proper test structure and organization
-Smart selector suggestions (using multiple strategies)
-Data-driven test approaches
-Basic assertions based on test case
+## Project Structure 📁
 
+```
+qa-copilot/
+├── frontend/          # React + Vite frontend
+│   ├── src/
+│   │   ├── pages/    # Main application pages
+│   │   ├── services/ # API service layers
+│   │   └── components/
+├── backend/           # Node.js + Express backend
+│   ├── src/
+│   │   ├── controllers/
+│   │   ├── services/ # Business logic
+│   │   └── routes/   # API endpoints
+├── cypress-templates/ # Cypress test templates
+└── scripts/          # Utility scripts
+```
 
+## Configuration 🔧
 
+### API Credentials
 
-Self-Healing Selectors (hackathon wow factor!)
+The application integrates with multiple services. Configure these using environment variables in your shell configuration (`~/.zshrc` or `~/.bashrc`):
 
-Instead of just XPaths, generate multiple selector strategies:
+#### JIRA/Atlassian
+- Get API token: https://id.atlassian.com/manage-profile/security/api-tokens
+- Required: `JIRA_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`
 
-data-testid (if available)
-CSS selectors
-Text-based selectors
-Relative locators
+#### TestRail
+- Get API key from TestRail: My Settings → API Keys
+- Required: `TESTRAIL_URL`, `TESTRAIL_EMAIL`, `TESTRAIL_TOKEN`
 
+#### Google Gemini AI (Optional but Recommended)
+- Get API key: https://makersuite.google.com/app/apikey
+- Required: `GOOGLE_API_KEY`
+- Model selection: `GEMINI_MODEL` (options: `gemini-2.5-flash` or `gemini-2.5-pro`)
+  - **gemini-2.5-flash** (default): Faster responses, great quality, cost-effective
+  - **gemini-2.5-pro**: Highest quality, better for complex test scenarios
 
-Include fallback mechanisms in generated tests
+### Mock Mode
 
+The application automatically falls back to mock data when APIs are not configured:
+- 3 demo JIRA boards with sample issues
+- AI-generated test cases (3 per request)
+- Mock TestRail projects and suites
+- Sample Cypress test generation
 
+## Usage Workflow 📋
 
-Technical Architecture
-Frontend: React + Tailwind CSS (rapid development)
-Backend: Node.js/Express or Python/FastAPI
-APIs: JIRA REST API, TestRail API, Gemini 2.0 Pro, GitHub API
-Database: SQLite (simple for hackathon)
-Realistic 3-4 Day Plan
-Day 1:
+1. **Dashboard**: View JIRA boards and select issues
+2. **Generate Tests**: Click "Generate Tests" on any JIRA issue
+3. **Review Test Cases**: AI generates comprehensive test cases
+4. **Push to TestRail**: Select project/suite and push test cases
+5. **Generate Cypress**: Select test cases and generate automation code
+6. **Export**: Download or copy Cypress tests to your project
 
-Set up project structure and API integrations
-Build JIRA connection and sprint data retrieval
-Create basic UI with sprint ticket display
+## Development 💻
 
-Day 2:
+### Available Scripts
 
-Implement Gemini integration for test case generation
-Build TestRail integration
-Add test case review/edit interface
+```bash
+# Install all dependencies
+npm run setup
 
-Day 3:
+# Start development servers
+npm run dev
 
-Implement Cypress test generation
-Add GitHub integration for reading existing tests
-Create selector generation logic
+# Run backend only
+npm run dev:backend
 
-Day 4:
+# Run frontend only
+npm run dev:frontend
 
-Polish UI/UX
-Add duplicate detection
-Prepare demo and documentation
+# Run tests
+npm test
+```
 
-Key Differentiators for Hackathon
+### Technology Stack
 
-AI-Powered Test Data Generation: Generate realistic test data based on field types
-Risk-Based Test Prioritization: Use AI to suggest which tickets need more thorough testing
-Test Maintenance Prediction: Flag which generated tests are likely to be brittle
+**Frontend:**
+- React 18
+- Vite
+- TanStack Query
+- Tailwind CSS
+- React Router
 
-Simplified MVP Alternative
-If time becomes tight, here's a stripped-down version that still impresses:
+**Backend:**
+- Node.js
+- Express
+- Sequelize ORM
+- Google Gemini AI (2.5 Flash/Pro models)
+- Axios
 
-Focus only on JIRA → Test Case → TestRail flow
-Skip Cypress generation initially (add as "future enhancement" in demo)
-Use simple template-based generation as fallback if AI API has issues
+## API Endpoints 🔌
 
-Technical Tips
+### JIRA
+- `GET /api/jira/boards` - List all boards
+- `GET /api/jira/current-sprint/:boardId` - Get active sprint
+- `GET /api/jira/sprint/:sprintId/issues` - Get sprint issues
 
-Use environment variables for all API keys
-Implement caching for JIRA/TestRail data to avoid rate limits during demos
-Create mock data as backup for the demo
-Build incrementally - have a working demo after each day
+### Test Generation
+- `POST /api/gemini/generate-test-cases` - Generate test cases from ticket
+- `POST /api/gemini/analyze-duplicate` - Check for duplicate tests
+
+### TestRail
+- `GET /api/testrail/projects` - List projects
+- `GET /api/testrail/suites/:projectId` - List test suites
+- `POST /api/testrail/test-case` - Create test case
+
+### Cypress
+- `POST /api/cypress/generate-test` - Generate Cypress code
+- `GET /api/cypress/templates` - List available templates
+
+## Troubleshooting 🔍
+
+### Common Issues
+
+1. **"Network Error" on frontend**
+   - Ensure both servers are running (`npm run dev`)
+   - Check that backend is on port 3001
+
+2. **API Authentication Failures**
+   - System automatically switches to mock mode
+   - Check your API credentials in `.env` files
+
+3. **Port Already in Use**
+   ```bash
+   # Kill process on port 3001
+   lsof -i :3001 | grep LISTEN | awk '{print $2}' | xargs kill -9
+   ```
+
+## Contributing 🤝
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+## License 📄
+
+This project is licensed under the MIT License.
+
+## Support 💬
+
+For issues and questions, please open an issue in the GitHub repository.
+
+---
+
+Built with ❤️ for QA Engineers

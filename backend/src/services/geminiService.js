@@ -14,8 +14,12 @@ export class GeminiService {
     if (apiKey) {
       // Use direct API key for Gemini
       this.genAI = new GoogleGenerativeAI(apiKey);
-      this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
-      logger.info('Gemini API configured with API key');
+      
+      // Use Gemini 2.5 Flash by default (faster, good quality) or Pro for higher quality
+      // You can switch between 'gemini-2.5-flash' and 'gemini-2.5-pro' based on needs
+      const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+      this.model = this.genAI.getGenerativeModel({ model: modelName });
+      logger.info(`Gemini API configured with model: ${modelName}`);
     } else {
       // For Vertex AI, you would need different initialization
       logger.info(`Google AI configured with service account: ${process.env.GOOGLE_APPLICATION_CREDENTIALS}`);

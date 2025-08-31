@@ -11,7 +11,11 @@ export class CypressGenerator {
       return;
     }
     this.genAI = new GoogleGenerativeAI(apiKey);
-    this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+    
+    // Use Gemini 2.5 Flash/Pro for better code generation
+    const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    this.model = this.genAI.getGenerativeModel({ model: modelName });
+    logger.info(`Cypress Generator using Gemini model: ${modelName}`);
   }
 
   async generateTest(testCase, options = {}) {
