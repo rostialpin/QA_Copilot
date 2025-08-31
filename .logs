@@ -1,0 +1,188 @@
+Followed your direction aunched the QA Copilot. Have an option select the Board, since we use mocked data we should have some demo Board, right?
+
+Yes, exactly! The mock data includes demo boards, but it seems there might be an issue with the select dropdown. Let me check and fix the frontend to properly display the mock boards:
+
+
+F
+
+Read text file
+
+
+The Dashboard looks correct. Let me check if the API is returning the boards properly. Let me also add some better error handling and logging:
+
+
+F
+
+Write file
+
+
+Now let me also ensure the CSS is properly imported:
+
+
+F
+
+Write file
+
+
+Now, let's make sure the mock service is returning boards in the correct format. Let me check the controller:
+
+
+F
+
+Read text file
+
+
+The controller looks good. Now let me make sure the mock service is properly initialized when JIRA auth fails. Let me update the backend server to add a test endpoint:
+
+
+F
+
+Write file
+
+
+Now restart your servers and check if the mock data is working. You can test it directly by visiting:
+
+Check health endpoint: http://localhost:3001/health
+Test mock data directly: http://localhost:3001/api/test-mock
+Test boards API: http://localhost:3001/api/jira/boards
+If the boards are still not showing up in the dropdown, open the browser console (F12) and check for any errors. The updated Dashboard component now includes debug information that will show in the console.
+
+The mock data includes:
+
+3 Demo Boards:
+QA Team Board (scrum)
+Development Board (kanban)
+Product Backlog (scrum)
+1 Active Sprint: "Sprint 23 - Q4 Release Prep"
+5 Demo Issues with various types and statuses
+Try refreshing the page, and you should see:
+
+The boards in the dropdown
+When you select "QA Team Board", it should show the active sprint
+The sprint should display 5 demo issues
+Let me know what you see in the browser console or if you get any specific error messages!
+
+Error loading boards
+Network Error
+Check the console for more details
+
+The Network Error indicates the frontend can't connect to the backend. Let's troubleshoot this:
+
+🔍 Quick Troubleshooting Steps
+1. Check if the backend is running
+Open a new terminal and check:
+
+bash
+curl http://localhost:3001/health
+If this doesn't work, the backend isn't running.
+
+2. Make sure both servers are running
+You need TWO terminal windows:
+
+Terminal 1 - Backend:
+
+bash
+cd "/Users/alpinro/Code Prjects/qa-copilot/qa-copilot/backend"
+npm run dev
+Terminal 2 - Frontend:
+
+bash
+cd "/Users/alpinro/Code Prjects/qa-copilot/qa-copilot/frontend"
+npm run dev
+3. Or use the combined command (if you have concurrently installed):
+bash
+cd "/Users/alpinro/Code Prjects/qa-copilot/qa-copilot"
+npm run dev
+Let me check if you have the frontend environment file set up correctly:
+
+
+F
+
+Read text file
+
+
+Good, the frontend .env is correct. Let me check if the API service is properly configured:
+
+
+F
+
+Read text file
+
+
+The API configuration looks correct. Let me create a simple test page to debug the connection:
+
+F
+
+
+Write file
+
+
+F
+
+
+Write file
+
+
+Now, follow these steps:
+
+🔧 Fix the Connection Issue
+Step 1: Ensure both servers are running
+You need TWO separate terminals:
+
+Terminal 1 - Backend:
+
+bash
+cd "/Users/alpinro/Code Prjects/qa-copilot/qa-copilot/backend"
+npm run dev
+You should see:
+
+✨ QA Copilot API running on http://localhost:3001
+📊 Health check: http://localhost:3001/health
+🎭 Test mock data: http://localhost:3001/api/test-mock
+🎭 === RUNNING IN MOCK MODE ===
+Terminal 2 - Frontend:
+
+bash
+cd "/Users/alpinro/Code Prjects/qa-copilot/qa-copilot/frontend"  
+npm run dev
+You should see:
+
+VITE ready in X ms
+➜ Local: http://localhost:5173/
+Step 2: Test the connection
+Go to: http://localhost:5173/test-connection
+Click "Run Connection Tests"
+See which tests pass/fail
+Step 3: Common fixes
+If the backend isn't starting:
+
+bash
+# Check if port 3001 is already in use
+lsof -i :3001
+
+# Kill any process using it
+kill -9 [PID]
+
+# Or use a different port
+PORT=3002 npm run dev
+If you see CORS errors:
+
+bash
+# Make sure you're accessing frontend via localhost:5173
+# NOT via 127.0.0.1 or any other address
+Step 4: Quick Alternative - Run Everything in One Terminal
+If you haven't installed dependencies in the root:
+
+bash
+cd "/Users/alpinro/Code Prjects/qa-copilot/qa-copilot"
+npm install
+
+# This will run both frontend and backend
+npm run dev
+What you should see when it's working:
+Backend terminal shows requests coming in:
+2024-XX-XX XX:XX:XX info: GET /api/jira/boards
+Frontend at http://localhost:5173 shows:
+3 boards in the dropdown
+When you select a board, you see the sprint
+5 demo issues appear

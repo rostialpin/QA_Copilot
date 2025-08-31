@@ -1,0 +1,31 @@
+{
+  "name": "qa-copilot-backend",
+  "version": "1.0.0",
+  "description": "QA Copilot Backend API",
+  "main": "server.js",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "dev:env": "node --watch --env-file=.env server.js",
+    "test": "node --test",
+    "test:watch": "node --test --watch"
+  },
+  "dependencies": {
+    "express": "^4.21.1",
+    "cors": "^2.8.5",
+    "axios": "^1.7.7",
+    "@google/generative-ai": "^0.21.0",
+    "sqlite3": "^5.1.7",
+    "sequelize": "^6.37.3",
+    "express-rate-limit": "^7.4.1",
+    "winston": "^3.15.0",
+    "joi": "^17.13.3",
+    "@octokit/rest": "^21.0.2",
+    "cheerio": "^1.0.0",
+    "node-cache": "^5.1.2"
+  }
+}
