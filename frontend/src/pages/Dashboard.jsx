@@ -4,16 +4,36 @@ import { useNavigate } from 'react-router-dom';
 import { jiraApi } from '../services/jiraApi';
 
 export default function Dashboard() {
-  const [selectedBoard, setSelectedBoard] = useState(null);
+  // Load saved board from localStorage
+  const savedBoard = localStorage.getItem('selectedJiraBoard');
+  const savedBoardData = savedBoard ? JSON.parse(savedBoard) : null;
+  
+  console.log('Loading Dashboard - Saved board data:', savedBoardData);
+  
+  // Ensure IDs are strings for consistency
+  const [selectedBoard, setSelectedBoard] = useState(savedBoardData?.id ? String(savedBoardData.id) : null);
+  const [selectedBoardInfo, setSelectedBoardInfo] = useState(savedBoardData || null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const navigate = useNavigate();
 
-  const { data: boards, isLoading: boardsLoading, error: boardsError } = useQuery({
-    queryKey: ['boards'],
+  // Separate queries for all boards and search results
+  const { data: allBoards, isLoading: allBoardsLoading } = useQuery({
+    queryKey: ['allBoards'],
     queryFn: jiraApi.getBoards,
-    onError: (error) => {
-      console.error('Error fetching boards:', error);
-    }
+    enabled: !debouncedSearchTerm, // Only fetch when not searching
   });
+
+  const { data: searchResults, isLoading: searchLoading } = useQuery({
+    queryKey: ['searchProjects', debouncedSearchTerm],
+    queryFn: () => jiraApi.searchProjects(debouncedSearchTerm),
+    enabled: !!debouncedSearchTerm && debouncedSearchTerm.length >= 2,
+  });
+
+  // Combine results based on search state
+  const boards = debouncedSearchTerm ? searchResults : allBoards;
+  const boardsLoading = debouncedSearchTerm ? searchLoading : allBoardsLoading;
+  const boardsError = null;
 
   const { data: sprint, isLoading: sprintLoading, error: sprintError } = useQuery({
     queryKey: ['currentSprint', selectedBoard],
@@ -27,19 +47,83 @@ export default function Dashboard() {
     enabled: !!sprint?.id,
   });
 
+  // Debounce search term
   useEffect(() => {
-    console.log('Boards data:', boards);
-    if (boards && boards.length > 0 && !selectedBoard) {
-      console.log('Setting default board:', boards[0].id);
-      setSelectedBoard(boards[0].id);
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 300);
+    
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // Save selected board to localStorage whenever it changes
+  const handleBoardSelect = (boardId) => {
+    // Convert to string for consistent comparison
+    const boardIdStr = String(boardId);
+    const board = boards?.find(b => String(b.id) === boardIdStr);
+    if (board) {
+      // Save board info to localStorage
+      const boardInfo = {
+        id: String(board.id),
+        name: board.name,
+        projectKey: board.location?.projectKey || board.projectKey,
+        projectName: board.location?.projectName || board.projectName
+      };
+      localStorage.setItem('selectedJiraBoard', JSON.stringify(boardInfo));
+      setSelectedBoardInfo(boardInfo);
     }
-  }, [boards, selectedBoard]);
+    setSelectedBoard(boardIdStr);
+  };
+
+  // Clear saved board
+  const clearSavedBoard = () => {
+    localStorage.removeItem('selectedJiraBoard');
+    setSelectedBoard(null);
+    setSelectedBoardInfo(null);
+  };
+
+  useEffect(() => {
+    console.log('Projects data:', boards, 'Search term:', debouncedSearchTerm);
+    // Only auto-select first board if there's no saved board and no current selection
+    if (boards && boards.length > 0 && !selectedBoard && !savedBoardData) {
+      console.log('Setting default board:', boards[0].id);
+      handleBoardSelect(boards[0].id);
+    }
+    // If we have a saved board but haven't selected it yet, restore it
+    else if (boards && savedBoardData && !selectedBoard) {
+      // Check if the saved board still exists in the list
+      const savedBoardExists = boards.find(b => String(b.id) === String(savedBoardData.id));
+      if (savedBoardExists) {
+        console.log('Restoring saved board:', savedBoardData.id);
+        setSelectedBoard(String(savedBoardData.id));
+      } else {
+        console.log('Saved board no longer exists, clearing');
+        clearSavedBoard();
+      }
+    }
+  }, [boards]);
+
+  // Debounce search term to improve performance
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   useEffect(() => {
     console.log('Selected board:', selectedBoard);
     console.log('Sprint data:', sprint);
     console.log('Issues data:', issues);
   }, [selectedBoard, sprint, issues]);
+
+  // Filter boards based on debounced search term
+  const filteredBoards = boards?.filter(board => 
+    debouncedSearchTerm === '' || 
+    board.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) || 
+    board.key?.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
+  ) || [];
 
   if (boardsLoading) {
     return (
@@ -62,50 +146,92 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       <div className="px-4 sm:px-0">
-        <h2 className="text-2xl font-bold text-gray-900">Sprint Overview</h2>
-        <p className="mt-1 text-sm text-gray-600">
-          Current sprint status and test coverage
-        </p>
-        {boards && (
-          <p className="mt-1 text-xs text-gray-500">
-            {boards.length === 0 ? 'No boards available' : `Found ${boards.length} board(s)`}
-          </p>
-        )}
-      </div>
-
-      <div className="bg-white shadow rounded-lg p-4">
-        <label className="block text-sm font-medium text-gray-700">
-          Select Board
-        </label>
-        <select
-          value={selectedBoard || ''}
-          onChange={(e) => {
-            console.log('Board selected:', e.target.value);
-            setSelectedBoard(e.target.value);
-          }}
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
-        >
-          <option value="">Select a board...</option>
-          {boards?.map((board) => (
-            <option key={board.id} value={board.id}>
-              {board.name} ({board.type})
-            </option>
-          ))}
-        </select>
-        
-        {/* Debug info - remove in production */}
-        {process.env.NODE_ENV === 'development' && (
-          <div className="mt-2 text-xs text-gray-500">
-            Debug: {boards ? `${boards.length} boards loaded` : 'No boards loaded'}
-            {boards && boards.length > 0 && (
-              <ul className="mt-1">
-                {boards.map(b => (
-                  <li key={b.id}>- {b.id}: {b.name}</li>
-                ))}
-              </ul>
+        <div className="flex justify-between items-start">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900">Sprint Overview</h2>
+            <p className="mt-1 text-sm text-gray-600">
+              Current sprint status and test coverage
+            </p>
+            {selectedBoardInfo && (
+              <p className="mt-1 text-sm text-indigo-600">
+                📌 Last used: <span className="font-medium">{selectedBoardInfo.name}</span>
+              </p>
+            )}
+            {boards && (
+              <p className="mt-1 text-xs text-gray-500">
+                {boards.length === 0 ? 'No boards available' : 
+                 debouncedSearchTerm ? 
+                   `Showing ${filteredBoards.length} of ${boards.length} board(s)` :
+                   `Found ${boards.length} board(s)`
+                }
+              </p>
             )}
           </div>
-        )}
+          {selectedBoardInfo && (
+            <button
+              onClick={clearSavedBoard}
+              className="text-sm text-gray-500 hover:text-gray-700 bg-white px-2 py-1 rounded border border-gray-300 hover:border-gray-400"
+              title="Clear saved project"
+            >
+              Clear saved project
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-white shadow rounded-lg p-4 space-y-4">
+        {/* Search Input */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Search Projects
+          </label>
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search by project name or key (e.g., 'WCTV')..."
+            className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
+          />
+        </div>
+
+        {/* Board Select */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700">
+            Select Board
+          </label>
+          <select
+            value={selectedBoard || ''}
+            onChange={(e) => {
+              console.log('Board selected:', e.target.value);
+              handleBoardSelect(e.target.value);
+            }}
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
+          >
+            <option value="">Select a board...</option>
+            {filteredBoards.map((board) => (
+              <option key={board.id} value={board.id}>
+                {board.name} ({board.key || board.type})
+              </option>
+            ))}
+          </select>
+          
+          {/* Debug info - remove in production */}
+          {process.env.NODE_ENV === 'development' && (
+            <div className="mt-2 text-xs text-gray-500">
+              Debug: {boards ? `${boards.length} total boards, ${filteredBoards.length} filtered` : 'No boards loaded'}
+              {debouncedSearchTerm && (
+                <div className="mt-1">
+                  <strong>Search results for "{debouncedSearchTerm}":</strong>
+                  <ul className="mt-1 max-h-40 overflow-y-auto">
+                    {filteredBoards.map(b => (
+                      <li key={b.id}>- {b.id}: {b.name} ({b.key || b.type})</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {sprintLoading && selectedBoard && (

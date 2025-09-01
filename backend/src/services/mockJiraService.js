@@ -9,9 +9,9 @@ export class MockJiraService {
   initializeMockData() {
     return {
       boards: [
-        { id: '1', name: 'QA Team Board', type: 'scrum' },
-        { id: '2', name: 'Development Board', type: 'kanban' },
-        { id: '3', name: 'Product Backlog', type: 'scrum' }
+        { id: '1', name: 'QA Team Project', key: 'QA', type: 'software', projectCategory: 'Software Development' },
+        { id: '2', name: 'Development Project', key: 'DEV', type: 'software', projectCategory: 'Software Development' },
+        { id: '3', name: 'Product Management', key: 'PROD', type: 'business', projectCategory: 'Business' }
       ],
       sprints: [
         {
@@ -20,7 +20,7 @@ export class MockJiraService {
           state: 'active',
           startDate: '2024-10-14T10:00:00.000Z',
           endDate: '2024-10-28T10:00:00.000Z',
-          boardId: '1'
+          projectId: '1'
         }
       ],
       issues: [
@@ -110,9 +110,9 @@ export class MockJiraService {
     return this.mockData.boards;
   }
 
-  async getCurrentSprint(boardId) {
-    logger.info(`🎭 Returning mock sprint for board ${boardId}`);
-    return this.mockData.sprints.find(s => s.boardId === boardId) || this.mockData.sprints[0];
+  async getCurrentSprint(projectId) {
+    logger.info(`🎭 Returning mock sprint for project ${projectId}`);
+    return this.mockData.sprints.find(s => s.projectId === projectId) || this.mockData.sprints[0];
   }
 
   async getSprintIssues(sprintId) {

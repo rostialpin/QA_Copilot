@@ -12,7 +12,13 @@ export default function TestGenerator() {
     key: location.state?.ticketKey || '',
     summary: location.state?.ticketSummary || '',
     description: location.state?.ticketDescription || '',
-    type: location.state?.ticketType || 'Story'
+    type: location.state?.ticketType || 'Story',
+    // Bug-specific fields
+    stepsToReproduce: location.state?.stepsToReproduce || '',
+    actualBehavior: location.state?.actualBehavior || '',
+    expectedBehavior: location.state?.expectedBehavior || '',
+    // Story/Task fields
+    acceptanceCriteria: location.state?.acceptanceCriteria || ''
   });
   const [testCases, setTestCases] = useState([]);
   const [selectedProject, setSelectedProject] = useState('');
@@ -168,6 +174,66 @@ export default function TestGenerator() {
               <option value="Task">Task</option>
             </select>
           </div>
+
+          {/* Bug-specific fields */}
+          {ticket.type === 'Bug' && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Steps to Reproduce
+                </label>
+                <textarea
+                  value={ticket.stepsToReproduce}
+                  onChange={(e) => setTicket({...ticket, stepsToReproduce: e.target.value})}
+                  rows={3}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border"
+                  placeholder="1. Navigate to login page\n2. Enter valid credentials\n3. Click login button"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Actual Behavior
+                </label>
+                <textarea
+                  value={ticket.actualBehavior}
+                  onChange={(e) => setTicket({...ticket, actualBehavior: e.target.value})}
+                  rows={2}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border"
+                  placeholder="The login button remains disabled and user cannot proceed"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Expected Behavior
+                </label>
+                <textarea
+                  value={ticket.expectedBehavior}
+                  onChange={(e) => setTicket({...ticket, expectedBehavior: e.target.value})}
+                  rows={2}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border"
+                  placeholder="User should be logged in and redirected to dashboard"
+                />
+              </div>
+            </>
+          )}
+
+          {/* Story/Task specific fields */}
+          {(ticket.type === 'Story' || ticket.type === 'Task') && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700">
+                Acceptance Criteria
+              </label>
+              <textarea
+                value={ticket.acceptanceCriteria}
+                onChange={(e) => setTicket({...ticket, acceptanceCriteria: e.target.value})}
+                rows={3}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border"
+                placeholder="• User can reset password via email\n• Reset link expires after 24 hours\n• Password must meet security requirements"
+              />
+            </div>
+          )}
           
           <button
             onClick={() => generateMutation.mutate()}
@@ -182,57 +248,187 @@ export default function TestGenerator() {
       {testCases.length > 0 && (
         <>
           <div className="bg-white p-6 rounded-lg shadow">
-            <h3 className="font-medium mb-4">Generated Test Cases ({testCases.length})</h3>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-medium">Generated Test Cases ({testCases.length})</h3>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setTestCases([...testCases])}
+                  className="text-sm px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+                >
+                  Reset Changes
+                </button>
+                <button
+                  onClick={() => generateMutation.mutate()}
+                  className="text-sm px-3 py-1 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200"
+                >
+                  Regenerate
+                </button>
+              </div>
+            </div>
             <div className="space-y-3 max-h-96 overflow-y-auto">
               {testCases.map((tc, index) => (
                 <div key={index} className="border p-4 rounded">
-                  <div className="flex justify-between items-start">
-                    <h4 className="font-medium text-indigo-600">{tc.title}</h4>
-                    {tc.priority && (
-                      <span className={`text-xs px-2 py-1 rounded ${
-                        tc.priority === 'High' ? 'bg-red-100 text-red-700' :
-                        tc.priority === 'Low' ? 'bg-gray-100 text-gray-700' :
-                        'bg-yellow-100 text-yellow-700'
-                      }`}>
-                        {tc.priority}
-                      </span>
-                    )}
+                  <div className="flex justify-between items-start mb-2">
+                    <input
+                      type="text"
+                      value={tc.title}
+                      onChange={(e) => {
+                        const updated = [...testCases];
+                        updated[index].title = e.target.value;
+                        setTestCases(updated);
+                      }}
+                      className="font-medium text-indigo-600 bg-transparent border-b border-transparent hover:border-indigo-300 focus:border-indigo-500 focus:outline-none flex-1 mr-2"
+                    />
+                    <select
+                      value={tc.priority || 'Medium'}
+                      onChange={(e) => {
+                        const updated = [...testCases];
+                        updated[index].priority = e.target.value;
+                        setTestCases(updated);
+                      }}
+                      className={`text-xs px-2 py-1 rounded border ${
+                        tc.priority === 'High' ? 'bg-red-100 text-red-700 border-red-300' :
+                        tc.priority === 'Low' ? 'bg-gray-100 text-gray-700 border-gray-300' :
+                        'bg-yellow-100 text-yellow-700 border-yellow-300'
+                      }`}
+                    >
+                      <option value="High">High</option>
+                      <option value="Medium">Medium</option>
+                      <option value="Low">Low</option>
+                    </select>
                   </div>
-                  {tc.objective && (
-                    <p className="text-sm text-gray-600 mt-1">
-                      <strong>Objective:</strong> {tc.objective}
-                    </p>
-                  )}
-                  {tc.preconditions && (
-                    <p className="text-sm text-gray-600 mt-1">
-                      <strong>Preconditions:</strong> {tc.preconditions}
-                    </p>
-                  )}
-                  {tc.steps && tc.steps.length > 0 && (
-                    <div className="mt-2">
-                      <p className="text-sm font-medium text-gray-700">Steps:</p>
-                      <ol className="list-decimal list-inside text-sm text-gray-600 ml-2">
-                        {tc.steps.map((step, stepIndex) => (
-                          <li key={stepIndex} className="mt-1">
-                            {step.action}
-                            {step.expected && (
-                              <span className="text-green-600 ml-2">
-                                → {step.expected}
-                              </span>
-                            )}
-                          </li>
-                        ))}
-                      </ol>
+                  
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Objective:</label>
+                      <textarea
+                        value={tc.objective || ''}
+                        onChange={(e) => {
+                          const updated = [...testCases];
+                          updated[index].objective = e.target.value;
+                          setTestCases(updated);
+                        }}
+                        className="w-full text-sm text-gray-600 p-1 border rounded resize-none"
+                        rows={2}
+                      />
                     </div>
-                  )}
-                  {tc.expectedResult && (
-                    <p className="text-sm text-gray-600 mt-2">
-                      <strong>Expected Result:</strong> {tc.expectedResult}
-                    </p>
-                  )}
+                    
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Preconditions:</label>
+                      <input
+                        type="text"
+                        value={tc.preconditions || ''}
+                        onChange={(e) => {
+                          const updated = [...testCases];
+                          updated[index].preconditions = e.target.value;
+                          setTestCases(updated);
+                        }}
+                        className="w-full text-sm text-gray-600 p-1 border rounded"
+                      />
+                    </div>
+                    
+                    {tc.steps && tc.steps.length > 0 && (
+                      <div>
+                        <label className="text-xs font-medium text-gray-500">Steps:</label>
+                        <div className="space-y-1 ml-2">
+                          {tc.steps.map((step, stepIndex) => (
+                            <div key={stepIndex} className="flex items-start gap-2">
+                              <span className="text-sm text-gray-400 mt-1">{stepIndex + 1}.</span>
+                              <div className="flex-1 space-y-1">
+                                <input
+                                  type="text"
+                                  value={step.action}
+                                  onChange={(e) => {
+                                    const updated = [...testCases];
+                                    updated[index].steps[stepIndex].action = e.target.value;
+                                    setTestCases(updated);
+                                  }}
+                                  className="w-full text-sm p-1 border rounded"
+                                  placeholder="Action"
+                                />
+                                <input
+                                  type="text"
+                                  value={step.expected || ''}
+                                  onChange={(e) => {
+                                    const updated = [...testCases];
+                                    updated[index].steps[stepIndex].expected = e.target.value;
+                                    setTestCases(updated);
+                                  }}
+                                  className="w-full text-sm text-green-600 p-1 border border-green-200 rounded"
+                                  placeholder="Expected result"
+                                />
+                              </div>
+                              <button
+                                onClick={() => {
+                                  const updated = [...testCases];
+                                  updated[index].steps.splice(stepIndex, 1);
+                                  setTestCases(updated);
+                                }}
+                                className="text-red-500 hover:text-red-700 text-sm"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                          <button
+                            onClick={() => {
+                              const updated = [...testCases];
+                              updated[index].steps.push({ action: '', expected: '' });
+                              setTestCases(updated);
+                            }}
+                            className="text-sm text-indigo-600 hover:text-indigo-800"
+                          >
+                            + Add Step
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Expected Result:</label>
+                      <textarea
+                        value={tc.expectedResult || ''}
+                        onChange={(e) => {
+                          const updated = [...testCases];
+                          updated[index].expectedResult = e.target.value;
+                          setTestCases(updated);
+                        }}
+                        className="w-full text-sm text-gray-600 p-1 border rounded resize-none"
+                        rows={2}
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="mt-3 flex justify-end">
+                    <button
+                      onClick={() => {
+                        const updated = testCases.filter((_, i) => i !== index);
+                        setTestCases(updated);
+                      }}
+                      className="text-sm text-red-600 hover:text-red-800"
+                    >
+                      Remove Test Case
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
+            
+            <button
+              onClick={() => {
+                setTestCases([...testCases, {
+                  title: 'New Test Case',
+                  objective: '',
+                  preconditions: '',
+                  priority: 'Medium',
+                  steps: [{ action: '', expected: '' }],
+                  expectedResult: ''
+                }]);
+              }}
+              className="mt-3 text-sm text-indigo-600 hover:text-indigo-800"
+            >
+              + Add New Test Case
+            </button>
           </div>
 
           <div className="bg-white p-6 rounded-lg shadow">
