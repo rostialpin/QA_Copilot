@@ -1,0 +1,346 @@
+import { useState, useEffect } from 'react';
+import { 
+  Sparkles, Loader2, CheckCircle, AlertCircle, 
+  RefreshCw, Settings, TrendingUp
+} from 'lucide-react';
+import axios from 'axios';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
+export default function TestGenerator({ ticket, context, onGenerated, tests, isLoading: parentLoading }) {
+  const [options, setOptions] = useState({
+    coverageLevel: 'standard',
+    includePositive: true,
+    includeNegative: true,
+    includeEdgeCases: true,
+    includePlatformVariations: true
+  });
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [qualityScore, setQualityScore] = useState(0);
+  const [error, setError] = useState(null);
+  const [showOptions, setShowOptions] = useState(false);
+
+  const generateTests = async () => {
+    if (!ticket || !context) {
+      setError('Please complete previous steps first');
+      return;
+    }
+    
+    setIsGenerating(true);
+    setError(null);
+    
+    try {
+      // This would normally call the workflow API
+      // For now, generate demo tests
+      await new Promise(resolve => setTimeout(resolve, 3000)); // Simulate API delay
+      
+      const generatedTests = [
+        {
+          id: 1,
+          title: `${ticket.type === 'Bug' ? 'Verify Fix' : 'Test'}: ${ticket.summary}`,
+          objective: `Validate that ${ticket.summary.toLowerCase()} works correctly`,
+          preconditions: 'User is logged in and has access to video content',
+          priority: 'High',
+          steps: [
+            { action: 'Navigate to video player', expected: 'Video player loads successfully' },
+            { action: 'Start video playback', expected: 'Video begins playing' },
+            { action: 'Wait for intro to start (5 seconds)', expected: 'Skip intro button appears' },
+            { action: 'Click skip intro button', expected: 'Video jumps to main content' },
+            { action: 'Verify playback position', expected: 'Playback is past intro timestamp' }
+          ],
+          expectedResult: 'Skip intro functionality works as expected',
+          platforms: ['CTV', 'Roku'],
+          tags: ['video-player', 'skip-intro', 'automated']
+        },
+        {
+          id: 2,
+          title: `${ticket.summary} - Button Visibility Timing`,
+          objective: 'Verify skip intro button appears and disappears at correct times',
+          preconditions: 'Video with intro sequence available',
+          priority: 'High',
+          steps: [
+            { action: 'Start video with intro', expected: 'Video plays from beginning' },
+            { action: 'Verify button not visible initially', expected: 'No skip button shown' },
+            { action: 'Wait 5 seconds', expected: 'Skip intro button appears' },
+            { action: 'Wait for intro to end without clicking', expected: 'Button disappears automatically' }
+          ],
+          expectedResult: 'Button visibility timing matches requirements',
+          platforms: ['CTV', 'Roku']
+        },
+        {
+          id: 3,
+          title: `${ticket.summary} - Remote Navigation (Roku)`,
+          objective: 'Verify skip intro is accessible via remote control',
+          preconditions: 'Testing on Roku device with remote',
+          priority: 'High',
+          steps: [
+            { action: 'Start video playback', expected: 'Video plays' },
+            { action: 'Wait for skip button to appear', expected: 'Button visible after 5 seconds' },
+            { action: 'Use directional pad to navigate to button', expected: 'Button receives focus' },
+            { action: 'Press OK on remote', expected: 'Intro is skipped' }
+          ],
+          expectedResult: 'Remote navigation works correctly',
+          platforms: ['Roku']
+        },
+        {
+          id: 4,
+          title: `${ticket.summary} - Edge Case: Short Videos`,
+          objective: 'Verify skip intro behavior for videos shorter than intro threshold',
+          preconditions: 'Access to short video content (<30 seconds)',
+          priority: 'Medium',
+          steps: [
+            { action: 'Play video shorter than 30 seconds', expected: 'Video plays normally' },
+            { action: 'Observe skip button behavior', expected: 'Skip button does not appear' },
+            { action: 'Verify entire video plays', expected: 'No interruption in playback' }
+          ],
+          expectedResult: 'Skip intro not shown for short videos',
+          platforms: ['CTV', 'Roku']
+        },
+        {
+          id: 5,
+          title: `${ticket.summary} - Negative Test: Network Interruption`,
+          objective: 'Verify skip intro handles network issues gracefully',
+          preconditions: 'Ability to simulate network interruption',
+          priority: 'Medium',
+          steps: [
+            { action: 'Start video playback', expected: 'Video begins' },
+            { action: 'Wait for skip button to appear', expected: 'Button visible' },
+            { action: 'Interrupt network connection', expected: 'Video buffers' },
+            { action: 'Click skip intro during buffer', expected: 'Action queued or handled gracefully' },
+            { action: 'Restore network', expected: 'Skip executes when playback resumes' }
+          ],
+          expectedResult: 'Skip intro handles network issues without errors',
+          platforms: ['CTV', 'Roku']
+        }
+      ];
+      
+      // Filter based on options
+      let filteredTests = generatedTests;
+      if (!options.includeNegative) {
+        filteredTests = filteredTests.filter(t => !t.title.includes('Negative'));
+      }
+      if (!options.includeEdgeCases) {
+        filteredTests = filteredTests.filter(t => !t.title.includes('Edge Case'));
+      }
+      if (!options.includePlatformVariations) {
+        filteredTests = filteredTests.filter(t => !t.platforms.includes('Roku') || t.platforms.length > 1);
+      }
+      
+      // Calculate quality score
+      const score = calculateQualityScore(filteredTests, context);
+      setQualityScore(score);
+      
+      onGenerated(filteredTests);
+    } catch (err) {
+      console.error('Error generating tests:', err);
+      setError('Failed to generate tests. Please try again.');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const calculateQualityScore = (tests, context) => {
+    let score = 70; // Base score
+    
+    // More tests = better coverage
+    if (tests.length >= 5) score += 10;
+    if (tests.length >= 3) score += 5;
+    
+    // Platform coverage
+    const hasPlatformTests = tests.some(t => t.platforms && t.platforms.length > 0);
+    if (hasPlatformTests) score += 5;
+    
+    // Test variety
+    const hasNegativeTests = tests.some(t => t.title.includes('Negative'));
+    const hasEdgeCases = tests.some(t => t.title.includes('Edge'));
+    if (hasNegativeTests) score += 5;
+    if (hasEdgeCases) score += 5;
+    
+    return Math.min(score, 100);
+  };
+
+  const regenerateTests = () => {
+    onGenerated([]);
+    setQualityScore(0);
+    generateTests();
+  };
+
+  // Auto-generate on mount if not already generated
+  useEffect(() => {
+    if (!tests || tests.length === 0) {
+      generateTests();
+    }
+  }, []);
+
+  return (
+    <div className="space-y-4">
+      {/* Generation Options */}
+      <div className="bg-gray-50 rounded-lg p-4">
+        <div className="flex items-center justify-between mb-2">
+          <h4 className="text-sm font-medium text-gray-900 flex items-center gap-2">
+            <Settings className="h-4 w-4" />
+            Generation Options
+          </h4>
+          <button
+            onClick={() => setShowOptions(!showOptions)}
+            className="text-sm text-indigo-600 hover:text-indigo-700"
+          >
+            {showOptions ? 'Hide' : 'Show'} Options
+          </button>
+        </div>
+        
+        {showOptions && (
+          <div className="space-y-3 mt-3">
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-1 block">
+                Coverage Level
+              </label>
+              <div className="flex gap-2">
+                {['basic', 'standard', 'comprehensive'].map(level => (
+                  <button
+                    key={level}
+                    onClick={() => setOptions({ ...options, coverageLevel: level })}
+                    className={`
+                      px-3 py-1 rounded text-sm capitalize
+                      ${options.coverageLevel === level
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}
+                    `}
+                  >
+                    {level}
+                  </button>
+                ))}
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              {[
+                { key: 'includePositive', label: 'Positive Tests' },
+                { key: 'includeNegative', label: 'Negative Tests' },
+                { key: 'includeEdgeCases', label: 'Edge Cases' },
+                { key: 'includePlatformVariations', label: 'Platform Variations' }
+              ].map(option => (
+                <label key={option.key} className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={options[option.key]}
+                    onChange={(e) => setOptions({
+                      ...options,
+                      [option.key]: e.target.checked
+                    })}
+                    className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <span className="text-sm text-gray-700">{option.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Generate Button */}
+      {(!tests || tests.length === 0) && !isGenerating && (
+        <button
+          onClick={generateTests}
+          className="w-full bg-indigo-600 text-white py-3 rounded-lg hover:bg-indigo-700 flex items-center justify-center gap-2"
+        >
+          <Sparkles className="h-5 w-5" />
+          Generate Test Cases
+        </button>
+      )}
+
+      {/* Generating Animation */}
+      {isGenerating && (
+        <div className="bg-white rounded-lg border border-gray-200 p-8">
+          <div className="flex flex-col items-center">
+            <Loader2 className="h-8 w-8 animate-spin text-indigo-600 mb-4" />
+            <p className="text-gray-600 font-medium">Generating test cases...</p>
+            <p className="text-sm text-gray-500 mt-2">
+              Analyzing requirements and context...
+            </p>
+            <div className="w-64 bg-gray-200 rounded-full h-2 mt-4">
+              <div className="bg-indigo-600 h-2 rounded-full animate-pulse" style={{ width: '60%' }}></div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Error Display */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-5 w-5 text-red-500" />
+            <span className="text-red-700">{error}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Generated Tests */}
+      {tests && tests.length > 0 && (
+        <>
+          {/* Quality Score */}
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 text-green-600" />
+                <span className="font-medium text-green-900">
+                  Quality Score: {qualityScore}/100
+                </span>
+              </div>
+              <button
+                onClick={regenerateTests}
+                className="flex items-center gap-1 text-sm text-green-700 hover:text-green-800"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Regenerate
+              </button>
+            </div>
+            <p className="text-sm text-green-700 mt-1">
+              Generated {tests.length} test cases covering {
+                [...new Set(tests.flatMap(t => t.platforms || []))].join(', ')
+              }
+            </p>
+          </div>
+
+          {/* Test List */}
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            {tests.map((test, index) => (
+              <div key={test.id} className="bg-white border border-gray-200 rounded-lg p-4">
+                <div className="flex items-start justify-between mb-2">
+                  <h4 className="font-medium text-gray-900">
+                    {index + 1}. {test.title}
+                  </h4>
+                  <span className={`
+                    text-xs px-2 py-1 rounded
+                    ${test.priority === 'High' 
+                      ? 'bg-red-100 text-red-700' 
+                      : 'bg-yellow-100 text-yellow-700'}
+                  `}>
+                    {test.priority}
+                  </span>
+                </div>
+                
+                <p className="text-sm text-gray-600 mb-2">{test.objective}</p>
+                
+                <div className="flex items-center gap-2 text-xs">
+                  <CheckCircle className="h-3 w-3 text-green-500" />
+                  <span className="text-gray-500">
+                    {test.steps.length} steps
+                  </span>
+                  {test.platforms && (
+                    <>
+                      <span className="text-gray-400">•</span>
+                      <span className="text-gray-500">
+                        {test.platforms.join(', ')}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

@@ -1,5 +1,6 @@
 import { CypressGenerator } from '../services/cypressGenerator.js';
 import { GitHubService } from '../services/githubService.js';
+import patternLearningService from '../services/patternLearningService.js';
 import { logger } from '../utils/logger.js';
 
 export class CypressController {
@@ -39,6 +40,26 @@ export class CypressController {
       res.json(analysis);
     } catch (error) {
       logger.error('Error analyzing existing tests:', error);
+      next(error);
+    }
+  }
+
+  async getPatterns(req, res, next) {
+    try {
+      const patterns = patternLearningService.exportPatterns();
+      res.json(patterns);
+    } catch (error) {
+      logger.error('Error fetching patterns:', error);
+      next(error);
+    }
+  }
+
+  async getPatternStats(req, res, next) {
+    try {
+      const stats = patternLearningService.getStatistics();
+      res.json(stats);
+    } catch (error) {
+      logger.error('Error fetching pattern statistics:', error);
       next(error);
     }
   }

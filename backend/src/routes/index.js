@@ -3,6 +3,7 @@ import { jiraRouter } from './jira.routes.js';
 import { testRailRouter } from './testRail.routes.js';
 import { geminiRouter } from './gemini.routes.js';
 import { cypressRouter } from './cypress.routes.js';
+import { workflowRouter } from './workflow.routes.js';
 
 export const router = express.Router();
 
@@ -16,3 +17,4 @@ router.use('/jira', jiraRouter);
 router.use('/testrail', testRailRouter);
 router.use('/gemini', geminiRouter);
 router.use('/cypress', cypressRouter);
+router.use('/workflow', workflowRouter);

@@ -6,5 +6,6 @@ const controller = new TestRailController();
 
 testRailRouter.get('/projects', controller.getProjects.bind(controller));
 testRailRouter.get('/suites/:projectId', controller.getSuites.bind(controller));
+testRailRouter.get('/sections/:projectId/:suiteId', controller.getSections.bind(controller));
+testRailRouter.get('/test-cases/:projectId/:suiteId', controller.getTestCases.bind(controller));
 testRailRouter.post('/test-case', controller.createTestCase.bind(controller));
-testRailRouter.get('/test-cases/:suiteId', controller.getTestCases.bind(controller));

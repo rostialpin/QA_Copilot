@@ -1,0 +1,105 @@
+{
+  "claudeCode": {
+    "version": "1.0.0",
+    "project": "qa-copilot",
+    "description": "QA Copilot - AI-powered test generation and quality assurance assistant",
+    "sessionManagement": {
+      "enabled": true,
+      "summaries": {
+        "operational": ".claude/summaries/operational.md",
+        "strategic": ".claude/summaries/strategic.md"
+      }
+    },
+    "agents": {
+      "enabled": true,
+      "directory": ".claude/agents"
+    },
+    "mcpServers": {
+      "tavily": {
+        "enabled": true,
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-tavily"],
+        "env": {
+          "TAVILY_API_KEY": "${TAVILY_API_KEY}"
+        }
+      },
+      "semgrep": {
+        "enabled": true,
+        "command": "semgrep-mcp-server",
+        "args": [],
+        "env": {
+          "SEMGREP_APP_TOKEN": "${SEMGREP_APP_TOKEN}"
+        }
+      },
+      "serena": {
+        "enabled": true,
+        "command": "serena-mcp-server",
+        "args": ["--project-path", "/Users/alpinro/Code Prjects/qa-copilot/qa-copilot"],
+        "env": {}
+      },
+      "ref": {
+        "enabled": true,
+        "command": "ref-mcp-server",
+        "args": ["--project-path", "/Users/alpinro/Code Prjects/qa-copilot/qa-copilot"],
+        "env": {}
+      },
+      "qa-tools": {
+        "enabled": true,
+        "command": "qa-mcp-server",
+        "args": ["--project-path", "/Users/alpinro/Code Prjects/qa-copilot/qa-copilot"],
+        "env": {
+          "GOOGLE_API_KEY": "${GOOGLE_API_KEY}",
+          "JIRA_URL": "${JIRA_URL}",
+          "JIRA_EMAIL": "${JIRA_EMAIL}",
+          "JIRA_API_TOKEN": "${JIRA_API_TOKEN}"
+        }
+      }
+    },
+    "context": {
+      "includePatterns": [
+        "**/*.ts",
+        "**/*.tsx",
+        "**/*.js",
+        "**/*.jsx",
+        "**/*.json",
+        "**/*.md",
+        "**/*.yml",
+        "**/*.yaml"
+      ],
+      "excludePatterns": [
+        "**/node_modules/**",
+        "**/dist/**",
+        "**/build/**",
+        "**/.git/**",
+        "**/coverage/**"
+      ]
+    },
+    "tools": {
+      "bash": {
+        "enabled": true,
+        "defaultTimeout": 120000
+      },
+      "read": {
+        "enabled": true
+      },
+      "write": {
+        "enabled": true
+      },
+      "edit": {
+        "enabled": true
+      },
+      "grep": {
+        "enabled": true
+      },
+      "glob": {
+        "enabled": true
+      },
+      "webSearch": {
+        "enabled": true
+      },
+      "webFetch": {
+        "enabled": true
+      }
+    }
+  }
+}

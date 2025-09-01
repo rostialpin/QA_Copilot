@@ -39,11 +39,22 @@ export class TestRailController {
 
   async getTestCases(req, res, next) {
     try {
-      const { suiteId } = req.params;
-      const testCases = await this.testRailService.getTestCases(suiteId);
+      const { projectId, suiteId } = req.params;
+      const testCases = await this.testRailService.getTestCases(projectId, suiteId);
       res.json(testCases);
     } catch (error) {
       logger.error('Error fetching test cases:', error);
+      next(error);
+    }
+  }
+
+  async getSections(req, res, next) {
+    try {
+      const { projectId, suiteId } = req.params;
+      const sections = await this.testRailService.getSections(projectId, suiteId);
+      res.json(sections);
+    } catch (error) {
+      logger.error('Error fetching sections:', error);
       next(error);
     }
   }

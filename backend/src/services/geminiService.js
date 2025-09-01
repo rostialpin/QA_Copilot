@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { logger } from '../utils/logger.js';
 import { getConfluenceService } from './confluenceService.js';
+import patternLearningService from './patternLearningService.js';
 
 export class GeminiService {
   constructor() {
@@ -57,6 +58,15 @@ export class GeminiService {
       // Enhance ticket with Confluence data
       ticket.confluenceScenarios = documentation.scenarios;
       ticket.technicalSpecs = documentation.technicalSpecs;
+    }
+    
+    // Generate patterns and suggestions from pattern learning service
+    const patterns = await patternLearningService.generateWithPatterns(ticket, options);
+    if (patterns) {
+      logger.info('Using learned patterns for test generation');
+      options.patterns = patterns;
+      options.selectors = patterns.selectors;
+      options.customCommands = patterns.customCommands;
     }
     
     if (!this.model) {

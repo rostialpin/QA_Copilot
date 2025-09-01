@@ -2,6 +2,9 @@ import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { jiraApi } from '../services/jiraApi';
+import { cachedApi } from '../services/cacheService';
+import DemoMode from '../components/DemoMode';
+import CacheStats from '../components/CacheStats';
 
 export default function Dashboard() {
   // Load saved board from localStorage
@@ -17,16 +20,17 @@ export default function Dashboard() {
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const navigate = useNavigate();
 
-  // Separate queries for all boards and search results
+  // Separate queries for all boards and search results - now with caching
   const { data: allBoards, isLoading: allBoardsLoading } = useQuery({
     queryKey: ['allBoards'],
-    queryFn: jiraApi.getBoards,
+    queryFn: () => cachedApi.getJiraBoards(), // Using cached version
     enabled: !debouncedSearchTerm, // Only fetch when not searching
+    staleTime: 5 * 60 * 1000, // Consider data fresh for 5 minutes
   });
 
   const { data: searchResults, isLoading: searchLoading } = useQuery({
     queryKey: ['searchProjects', debouncedSearchTerm],
-    queryFn: () => jiraApi.searchProjects(debouncedSearchTerm),
+    queryFn: () => jiraApi.searchProjects(debouncedSearchTerm), // Keep search uncached for real-time results
     enabled: !!debouncedSearchTerm && debouncedSearchTerm.length >= 2,
   });
 
@@ -37,14 +41,16 @@ export default function Dashboard() {
 
   const { data: sprint, isLoading: sprintLoading, error: sprintError } = useQuery({
     queryKey: ['currentSprint', selectedBoard],
-    queryFn: () => jiraApi.getCurrentSprint(selectedBoard),
+    queryFn: () => cachedApi.getJiraSprint(selectedBoard), // Using cached version
     enabled: !!selectedBoard,
+    staleTime: 5 * 60 * 1000, // Consider data fresh for 5 minutes
   });
 
   const { data: issues, isLoading: issuesLoading, error: issuesError } = useQuery({
     queryKey: ['sprintIssues', sprint?.id],
-    queryFn: () => jiraApi.getSprintIssues(sprint.id),
+    queryFn: () => cachedApi.getJiraTickets(sprint.id), // Using cached version
     enabled: !!sprint?.id,
+    staleTime: 5 * 60 * 1000, // Consider data fresh for 5 minutes
   });
 
   // Debounce search term
@@ -145,6 +151,12 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Demo Mode for Hackathon */}
+      <DemoMode />
+      
+      {/* Cache Performance Stats */}
+      <CacheStats />
+      
       <div className="px-4 sm:px-0">
         <div className="flex justify-between items-start">
           <div>
@@ -305,6 +317,24 @@ export default function Dashboard() {
                     <p className="text-xs text-gray-500 mt-1">Assigned to: {issue.assignee}</p>
                   )}
                   <div className="mt-3 flex gap-2">
+                    <button
+                      onClick={() => navigate('/workflow', { 
+                        state: { 
+                          ticket: {
+                            key: issue.key,
+                            summary: issue.summary,
+                            description: issue.description || '',
+                            type: issue.type,
+                            priority: issue.priority,
+                            assignee: issue.assignee,
+                            status: issue.status
+                          }
+                        } 
+                      })}
+                      className="bg-purple-600 text-white px-3 py-1 rounded text-xs hover:bg-purple-700 transition-colors"
+                    >
+                      Complete Workflow
+                    </button>
                     <button
                       onClick={() => navigate('/test-generator', { 
                         state: { 

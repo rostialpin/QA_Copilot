@@ -2,15 +2,19 @@ import { Outlet, NavLink } from 'react-router-dom';
 import { 
   HomeIcon, 
   BeakerIcon, 
-  CodeBracketIcon, 
+  CodeBracketIcon,
+  FolderOpenIcon,
   Cog6ToothIcon 
 } from '@heroicons/react/24/outline';
 
 export default function Layout() {
   const navigation = [
     { name: 'Dashboard', href: '/', icon: HomeIcon },
+    { name: '✨ Complete Workflow', href: '/workflow', icon: BeakerIcon, highlight: true },
+    { name: '🚀 Smart Generator', href: '/unified-generator', icon: BeakerIcon },
     { name: 'Test Generator', href: '/test-generator', icon: BeakerIcon },
     { name: 'Cypress Generator', href: '/cypress-generator', icon: CodeBracketIcon },
+    { name: 'TestRail', href: '/testrail', icon: FolderOpenIcon },
     { name: 'Settings', href: '/settings', icon: Cog6ToothIcon },
   ];
 

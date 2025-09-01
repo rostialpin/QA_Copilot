@@ -1,0 +1,132 @@
+{
+  "mcpServers": {
+    "qa-tools": {
+      "command": "node",
+      "args": ["dist/mcp-server.js"],
+      "cwd": "/Users/alpinro/Code Prjects/qa-copilot/qa-copilot",
+      "env": {
+        "GOOGLE_API_KEY": "${GOOGLE_API_KEY}",
+        "GEMINI_MODEL": "${GEMINI_MODEL:-gemini-2.5-flash}",
+        "JIRA_URL": "${JIRA_URL}",
+        "JIRA_EMAIL": "${JIRA_EMAIL}",
+        "JIRA_API_TOKEN": "${JIRA_API_TOKEN}",
+        "USE_MOCK_JIRA": "${USE_MOCK_JIRA:-false}"
+      }
+    },
+    "claude-agents": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-claude-agents"],
+      "env": {}
+    }
+  },
+  "agents": {
+    "test-generator": {
+      "name": "Test Generator Agent",
+      "description": "Generates comprehensive test suites using AI",
+      "prompts": [
+        "Generate unit tests for {component}",
+        "Create integration tests for {feature}",
+        "Generate test data for {scenario}"
+      ]
+    },
+    "qa-analyzer": {
+      "name": "QA Analyzer Agent",
+      "description": "Analyzes code quality and test coverage",
+      "prompts": [
+        "Analyze test coverage for {module}",
+        "Review code quality in {file}",
+        "Identify testing gaps in {feature}"
+      ]
+    },
+    "bug-finder": {
+      "name": "Bug Finder Agent",
+      "description": "Identifies potential bugs and issues in code",
+      "prompts": [
+        "Find potential bugs in {file}",
+        "Check for edge cases in {function}",
+        "Analyze error handling in {module}"
+      ]
+    },
+    "test-runner": {
+      "name": "Test Runner Agent",
+      "description": "Executes tests and analyzes results",
+      "prompts": [
+        "Run all tests",
+        "Run tests for {module}",
+        "Analyze test failures"
+      ]
+    },
+    "jira-integrator": {
+      "name": "JIRA Integration Agent",
+      "description": "Manages JIRA tickets and test cases",
+      "prompts": [
+        "Create JIRA ticket for {bug}",
+        "Update test case {id}",
+        "Generate test report for {sprint}"
+      ]
+    },
+    "confluence-reporter": {
+      "name": "Confluence Reporter Agent",
+      "description": "Creates and updates Confluence documentation",
+      "prompts": [
+        "Create test report in Confluence",
+        "Update QA documentation for {feature}",
+        "Generate test summary for {release}"
+      ]
+    },
+    "session-starter": {
+      "name": "Session Starter Agent",
+      "description": "Initialize QA sessions from session-transition.md document",
+      "prompts": [
+        "Start new QA session from transition document",
+        "Load previous session context",
+        "Initialize testing environment"
+      ]
+    },
+    "session-wrapper": {
+      "name": "Session Wrapper Agent",
+      "description": "Conclude sessions and update session-transition.md",
+      "prompts": [
+        "Wrap up current QA session",
+        "Update session transition document",
+        "Generate handoff documentation"
+      ]
+    },
+    "session-manager": {
+      "name": "Session Manager Agent",
+      "description": "Manages QA testing sessions and workflows",
+      "prompts": [
+        "Start QA session for {feature}",
+        "Continue previous testing session",
+        "Generate session summary"
+      ]
+    },
+    "smart-commit": {
+      "name": "Smart Commit Agent",
+      "description": "Manages git commits with QA context",
+      "prompts": [
+        "Commit test changes",
+        "Create commit with test results",
+        "Generate commit message for QA work"
+      ]
+    },
+    "progress-tracker": {
+      "name": "Progress Tracker Agent",
+      "description": "Tracks testing progress and metrics",
+      "prompts": [
+        "Show testing progress",
+        "Generate progress report",
+        "Update test metrics"
+      ]
+    },
+    "mcp-scout": {
+      "name": "MCP Scout Agent",
+      "description": "Discovers and integrates MCP tools for QA",
+      "prompts": [
+        "Find available MCP tools",
+        "Integrate {tool} for testing",
+        "List MCP capabilities"
+      ]
+    }
+  }
+}
