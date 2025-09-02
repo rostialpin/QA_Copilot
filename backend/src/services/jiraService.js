@@ -15,8 +15,7 @@ export class JiraService {
   }
 
   constructor(config = null) {
-    // Always use real JIRA - no mock mode
-    this.useMock = false;
+    // Only use real JIRA
 
     this.cache = new NodeCache({ stdTTL: 300 });
     
@@ -97,12 +96,9 @@ export class JiraService {
         logger.error(`Authentication failed (${error.response.status})`);
         // Detailed error logging removed for cleaner output
         logger.info('💡 Tip: For Okta/SSO, try using your personal API token instead of service account');
-        // Only switch to mock if we haven't been explicitly configured
+        // No credentials provided
         if (!this.baseURL || !this.email || !this.apiToken) {
-          logger.info('No credentials provided, switching to mock mode');
-          this.useMock = true;
-          this.mockService = new MockJiraService();
-          return this.mockService.makeRequest(endpoint, method, data);
+          throw new Error('JIRA credentials not configured. Please set ATLASSIAN_URL, ATLASSIAN_EMAIL, and ATLASSIAN_TOKEN environment variables.');
         }
         // If we have credentials, throw the error so user knows auth failed
         throw new Error(`JIRA authentication failed: ${error.response.status} ${error.response.statusText}`);
@@ -112,9 +108,9 @@ export class JiraService {
   }
 
   async testConnection() {
-    // Don't use mock for testing - we want to know if real auth works
-    if (this.useMock && !this.baseURL) {
-      return this.mockService.testConnection();
+    // Real auth testing only
+    if (!this.baseURL) {
+      throw new Error('JIRA URL not configured');
     }
 
     try {
@@ -135,7 +131,7 @@ export class JiraService {
 
       logger.info('✅ JIRA connection successful!');
       logger.info(`Connected as: ${response.data.displayName} (${response.data.emailAddress})`);
-      this.useMock = false; // Connection successful, don't use mock
+      // Connection successful
       return true;
     } catch (error) {
       if (error.response?.status === 403) {
@@ -165,16 +161,7 @@ export class JiraService {
   }
 
   async searchProjects(query = '') {
-    if (this.useMock) {
-      const mockProjects = await this.mockService.getBoards();
-      if (!query) return mockProjects;
-      
-      const lowerQuery = query.toLowerCase();
-      return mockProjects.filter(p => 
-        p.name.toLowerCase().includes(lowerQuery) || 
-        p.key.toLowerCase().includes(lowerQuery)
-      );
-    }
+    // Real JIRA search only
 
     try {
       logger.info(`Searching for projects with query: "${query}"`);
@@ -310,13 +297,8 @@ export class JiraService {
         logger.error('Response data:', dataStr.substring(0, 500));
       }
       
-      // Initialize mock service if not already done
-      if (!this.mockService) {
-        this.mockService = new MockJiraService();
-      }
-      
-      logger.warn('Failed to discover projects, using mock data');
-      return this.mockService.getBoards();
+      logger.error('Failed to discover projects');
+      throw error;
     }
   }
 
@@ -430,15 +412,13 @@ export class JiraService {
       
       return null;
     } catch (error) {
-      logger.warn('Failed to get current sprint, using mock data');
-      return this.mockService ? this.mockService.getCurrentSprint(projectId) : null;
+      logger.error('Failed to get current sprint');
+      throw error;
     }
   }
 
   async getSprintIssues(sprintId) {
-    if (this.useMock) {
-      return this.mockService.getSprintIssues(sprintId);
-    }
+    // Real JIRA only
 
     try {
       // Use direct axios since makeRequest has issues
@@ -471,34 +451,30 @@ export class JiraService {
         acceptanceCriteria: issue.fields.customfield_10001 || issue.fields.customfield_10004 // Different orgs use different fields
       })) || [];
     } catch (error) {
-      logger.warn('Failed to get sprint issues, using mock data');
-      return this.mockService ? this.mockService.getSprintIssues(sprintId) : [];
+      logger.error('Failed to get sprint issues');
+      throw error;
     }
   }
 
   async getIssue(issueKey) {
-    if (this.useMock) {
-      return this.mockService.getIssue(issueKey);
-    }
+    // Real JIRA only
 
     try {
       return await this.makeRequest(`/rest/api/2/issue/${issueKey}`);
     } catch (error) {
-      return this.mockService ? this.mockService.getIssue(issueKey) : null;
+      throw error;
     }
   }
   
   async searchIssues(jql = 'project != null ORDER BY created DESC', maxResults = 50) {
-    if (this.useMock) {
-      return this.mockService.searchIssues(jql, maxResults);
-    }
+    // Real JIRA only
 
     try {
       const data = await this.makeRequest(`/rest/api/2/search?jql=${encodeURIComponent(jql)}&maxResults=${maxResults}`);
       return data.issues || [];
     } catch (error) {
-      logger.error('Failed to search issues, using mock data');
-      return this.mockService ? this.mockService.searchIssues(jql, maxResults) : [];
+      logger.error('Failed to search issues');
+      throw error;
     }
   }
 

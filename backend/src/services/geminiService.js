@@ -70,7 +70,7 @@ export class GeminiService {
     }
     
     if (!this.model) {
-      logger.warn('Gemini API not configured, returning mock test cases');
+      logger.warn('Gemini API not configured, returning fallback test cases');
       logger.warn('API Key status:', this.apiKey ? 'Present' : 'Missing');
       logger.warn('Model status:', this.currentModel);
       const mockResult = this.generateMockTestCases(ticket, options);
@@ -90,7 +90,7 @@ export class GeminiService {
       return parsed.testCases || [];
     } catch (error) {
       logger.error('Gemini API error:', error);
-      logger.warn('Falling back to mock test cases due to API error');
+      logger.warn('Falling back to fallback test cases due to API error');
       const mockResult = this.generateMockTestCases(ticket, options);
       return mockResult.testCases || [];
     }

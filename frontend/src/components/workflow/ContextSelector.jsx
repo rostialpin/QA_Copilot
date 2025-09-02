@@ -160,7 +160,7 @@ export default function ContextSelector({ ticket, onSelect, selected }) {
         `${API_URL}/api/testrail/test-cases/${selectedProject.id}/${selectedSuite.id}`,
         { params: { section_id: sectionId } }
       );
-      setTestCases(response.data.slice(0, 5)); // Show first 5 as preview
+      setTestCases(response.data); // Show all test cases in the folder
     } catch (error) {
       console.error('Error loading test cases:', error);
       // Use demo test cases

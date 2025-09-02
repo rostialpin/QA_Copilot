@@ -19,7 +19,7 @@ export class TestRailService {
 
   async makeRequest(endpoint, method = 'GET', data = null) {
     if (!this.baseURL || !this.auth.username || !this.auth.password) {
-      logger.warn('TestRail not configured, using mock data');
+      logger.warn('TestRail not configured, using fallback data');
       return this.getMockData(endpoint, method, data);
     }
 
@@ -41,7 +41,7 @@ export class TestRailService {
       return response.data;
     } catch (error) {
       logger.error(`TestRail API error: ${error.message}`);
-      logger.warn('Falling back to mock TestRail data');
+      logger.warn('Falling back to fallback TestRail data');
       return this.getMockData(endpoint, method, data);
     }
   }
@@ -102,7 +102,7 @@ export class TestRailService {
     return await this.makeRequest(`add_case/${suiteId}`, 'POST', data);
   }
 
-  async getTestCases(projectId, suiteId, sectionId = null, limit = 100) {
+  async getTestCases(projectId, suiteId, sectionId = null, limit = 250) {
     // TestRail requires project_id in the query for get_cases
     let endpoint = `get_cases/${projectId}&suite_id=${suiteId}`;
     if (sectionId) {

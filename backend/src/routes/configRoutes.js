@@ -9,8 +9,7 @@ router.get('/status', (req, res) => {
     jira: {
       configured: !!(process.env.JIRA_HOST && process.env.JIRA_EMAIL && process.env.JIRA_API_TOKEN),
       host: process.env.JIRA_HOST || 'Not configured',
-      email: process.env.JIRA_EMAIL || 'Not configured',
-      useMock: process.env.USE_MOCK_JIRA === 'true'
+      email: process.env.JIRA_EMAIL || 'Not configured'
     },
     testrail: {
       configured: !!(process.env.TESTRAIL_HOST && process.env.TESTRAIL_USERNAME && process.env.TESTRAIL_API_KEY),
@@ -24,26 +23,7 @@ router.get('/status', (req, res) => {
   res.json(config);
 });
 
-// Toggle mock mode for JIRA
-router.post('/jira/toggle-mock', (req, res) => {
-  const { useMock } = req.body;
-  
-  if (useMock !== undefined) {
-    process.env.USE_MOCK_JIRA = useMock ? 'true' : 'false';
-    logger.info(`JIRA mock mode ${useMock ? 'enabled' : 'disabled'}`);
-    
-    res.json({
-      success: true,
-      message: `JIRA mock mode ${useMock ? 'enabled' : 'disabled'}`,
-      useMock: process.env.USE_MOCK_JIRA === 'true'
-    });
-  } else {
-    res.status(400).json({
-      success: false,
-      message: 'useMock parameter is required'
-    });
-  }
-});
+// Mock mode removed - only real JIRA
 
 // Update JIRA credentials
 router.post('/jira/credentials', (req, res) => {
@@ -60,7 +40,6 @@ router.post('/jira/credentials', (req, res) => {
   process.env.JIRA_HOST = host;
   process.env.JIRA_EMAIL = email;
   process.env.JIRA_API_TOKEN = apiToken;
-  process.env.USE_MOCK_JIRA = 'false'; // Automatically disable mock mode
   
   logger.info(`JIRA credentials updated for ${host}`);
   

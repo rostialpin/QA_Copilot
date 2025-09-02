@@ -39,35 +39,20 @@ app.use((req, res, next) => {
 
 // Health check
 app.get('/health', (req, res) => {
-  const useMockJira = process.env.USE_MOCK_JIRA === 'true' || 
-                      process.env.NODE_ENV === 'demo' ||
-                      (!process.env.ATLASSIAN_TOKEN && !process.env.JIRA_API_TOKEN);
-  
   res.json({ 
     status: 'ok', 
     version: '1.0.0', 
     node: process.version,
     environment: {
-      jira: useMockJira ? 'mock' : !!process.env.ATLASSIAN_URL,
+      jira: !!process.env.ATLASSIAN_URL,
       testRail: !!process.env.TESTRAIL_URL,
       gemini: !!(process.env.GOOGLE_API_KEY || process.env.GOOGLE_APPLICATION_CREDENTIALS),
-      github: !!process.env.GITHUB_TOKEN,
-      mockMode: useMockJira
+      github: !!process.env.GITHUB_TOKEN
     }
   });
 });
 
-// Test endpoint for mock data
-app.get('/api/test-mock', async (req, res) => {
-  const { MockJiraService } = await import('./src/services/mockJiraService.js');
-  const mockService = new MockJiraService();
-  const boards = await mockService.getBoards();
-  res.json({
-    message: 'Mock data test',
-    boards: boards,
-    boardCount: boards.length
-  });
-});
+// Removed mock test endpoint
 
 // API Routes
 app.use('/api', apiRouter);
@@ -111,16 +96,9 @@ async function startServer() {
     app.listen(PORT, () => {
       logger.info(`✨ QA Copilot API running on http://localhost:${PORT}`);
       logger.info(`📊 Health check: http://localhost:${PORT}/health`);
-      logger.info(`🎭 Test mock data: http://localhost:${PORT}/api/test-mock`);
       
       // Check if we're in mock mode
-      if (process.env.USE_MOCK_JIRA === 'true' || !process.env.ATLASSIAN_TOKEN) {
-        logger.info('');
-        logger.info('🎭 === RUNNING IN MOCK MODE ===');
-        logger.info('Mock JIRA data will be used for demonstration');
-        logger.info('This is perfect for the hackathon demo!');
-        logger.info('=====================================');
-      }
+      // Real JIRA mode only
     });
   } catch (error) {
     logger.error('Failed to start server:', error);
