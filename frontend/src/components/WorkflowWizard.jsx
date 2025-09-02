@@ -33,6 +33,7 @@ export default function WorkflowWizard({ initialTicket = null }) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [isComplete, setIsComplete] = useState(false);
+  const [hasPreSelectedTicket] = useState(!!initialTicket);
   
   // Step-specific data
   const [selectedTicket, setSelectedTicket] = useState(initialTicket);
@@ -153,12 +154,15 @@ export default function WorkflowWizard({ initialTicket = null }) {
             await executeStep('selectContext', selectedContext);
           }
           
+          console.log('Calling generateTests API...');
           result = await executeStep('generateTests', {
             coverageLevel: 'standard',
             includeNegativeTests: true,
             includePlatformVariations: true
           });
-          const tests = result.tests || [];
+          console.log('generateTests API response:', result);
+          const tests = result?.tests || [];
+          console.log('Setting generated tests:', tests.length, 'tests');
           setGeneratedTests(tests);
           // Auto-set as reviewed initially so the review step works
           setReviewedTests(tests);
@@ -197,7 +201,9 @@ export default function WorkflowWizard({ initialTicket = null }) {
   };
 
   const handleBack = () => {
-    if (currentStep > 1) {
+    // Prevent going back to ticket selection if we started with a pre-selected ticket
+    const minStep = hasPreSelectedTicket ? 2 : 1;
+    if (currentStep > minStep) {
       setCurrentStep(currentStep - 1);
     }
   };
@@ -210,16 +216,21 @@ export default function WorkflowWizard({ initialTicket = null }) {
     if (workflowId) {
       localStorage.removeItem(`workflow_${workflowId}`);
     }
-    setWorkflowId(null);
-    setCurrentStep(1);
-    setSelectedTicket(null);
-    setSelectedContext(null);
-    setGeneratedTests([]);
-    setReviewedTests([]);
-    setSavedTests([]);
-    setCypressCode([]);
-    setIsComplete(false);
-    startWorkflow();
+    // If we had a pre-selected ticket, navigate back to dashboard
+    if (hasPreSelectedTicket) {
+      navigate('/');
+    } else {
+      setWorkflowId(null);
+      setCurrentStep(1);
+      setSelectedTicket(null);
+      setSelectedContext(null);
+      setGeneratedTests([]);
+      setReviewedTests([]);
+      setSavedTests([]);
+      setCypressCode([]);
+      setIsComplete(false);
+      startWorkflow();
+    }
   };
 
   const renderStepContent = () => {
@@ -227,6 +238,29 @@ export default function WorkflowWizard({ initialTicket = null }) {
     
     switch (step.name) {
       case 'selectTicket':
+        // If we have a pre-selected ticket, show it as read-only
+        if (hasPreSelectedTicket && selectedTicket) {
+          return (
+            <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
+              <h3 className="text-lg font-semibold mb-4">Selected Ticket</h3>
+              <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="flex items-start space-x-3">
+                  <FileText className="w-5 h-5 text-blue-600 mt-1" />
+                  <div className="flex-1">
+                    <p className="font-medium text-gray-900">{selectedTicket.key}</p>
+                    <p className="text-gray-700 mt-1">{selectedTicket.summary}</p>
+                    <div className="flex items-center space-x-4 mt-2 text-sm text-gray-600">
+                      <span>Type: {selectedTicket.issueType}</span>
+                      <span>Status: {selectedTicket.status}</span>
+                      {selectedTicket.priority && <span>Priority: {selectedTicket.priority}</span>}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <p className="text-sm text-gray-500 mt-4">This ticket was pre-selected from the dashboard</p>
+            </div>
+          );
+        }
         return (
           <TicketSelector
             onSelect={setSelectedTicket}
@@ -319,7 +353,7 @@ export default function WorkflowWizard({ initialTicket = null }) {
         
         {/* Progress Steps */}
         <div className="flex items-center justify-between">
-          {WORKFLOW_STEPS.map((step, index) => {
+          {WORKFLOW_STEPS.filter(step => !hasPreSelectedTicket || step.id !== 1).map((step, index) => {
             const isActive = step.id === currentStep;
             const isCompleted = step.id < currentStep;
             const Icon = step.icon;
@@ -351,7 +385,7 @@ export default function WorkflowWizard({ initialTicket = null }) {
                     {step.optional && <span className="block text-xs">(Optional)</span>}
                   </span>
                 </div>
-                {index < WORKFLOW_STEPS.length - 1 && (
+                {index < WORKFLOW_STEPS.filter(s => !hasPreSelectedTicket || s.id !== 1).length - 1 && (
                   <div className={`
                     flex-1 h-0.5 mx-2 mt-5
                     ${isCompleted ? 'bg-green-500' : 'bg-gray-200'}
@@ -393,8 +427,10 @@ export default function WorkflowWizard({ initialTicket = null }) {
       <div className="flex justify-between">
         <button
           onClick={handleBack}
-          disabled={currentStep === 1 || isLoading}
-          className="flex items-center gap-2 px-4 py-2 text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={(hasPreSelectedTicket && currentStep === 2) || currentStep === 1 || isLoading}
+          className={`flex items-center gap-2 px-4 py-2 text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed ${
+            (hasPreSelectedTicket && currentStep === 2) ? 'invisible' : ''
+          }`}
         >
           <ChevronLeft className="h-4 w-4" />
           Back

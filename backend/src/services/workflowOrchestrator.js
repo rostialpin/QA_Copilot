@@ -191,10 +191,12 @@ export class WorkflowOrchestrator {
       };
       
       // Generate test cases using AI with context
+      logger.info(`Calling Gemini service to generate tests for ticket: ${ticket.key}`);
       const generatedTests = await this.geminiService.generateTestCases(
         ticket,
         generationOptions
       );
+      logger.info(`Gemini service returned ${generatedTests?.length || 0} tests`);
       
       // Calculate quality score based on pattern matching
       const qualityScore = this.calculateQualityScore(generatedTests, context.patterns);

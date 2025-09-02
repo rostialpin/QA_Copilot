@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { jiraApi } from '../services/jiraApi';
@@ -20,47 +20,54 @@ export default function Dashboard() {
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const navigate = useNavigate();
 
-  // Separate queries for all boards and search results - now with caching
-  const { data: allBoards, isLoading: allBoardsLoading } = useQuery({
+  // Single query for boards - always fetch all boards and filter client-side
+  const { data: allBoards, isLoading: boardsLoading, error: boardsError, refetch: refetchBoards } = useQuery({
     queryKey: ['allBoards'],
-    queryFn: () => cachedApi.getJiraBoards(), // Using cached version
-    enabled: !debouncedSearchTerm, // Only fetch when not searching
+    queryFn: async () => {
+      // Fetch directly from API, bypassing cache for now
+      const response = await fetch('http://localhost:3001/api/jira/boards');
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      const data = await response.json();
+      console.log('Fetched boards directly:', data.length, 'boards');
+      return data;
+    },
     staleTime: 5 * 60 * 1000, // Consider data fresh for 5 minutes
+    refetchOnWindowFocus: false, // Prevent refetch on window focus
   });
 
-  const { data: searchResults, isLoading: searchLoading } = useQuery({
-    queryKey: ['searchProjects', debouncedSearchTerm],
-    queryFn: () => jiraApi.searchProjects(debouncedSearchTerm), // Keep search uncached for real-time results
-    enabled: !!debouncedSearchTerm && debouncedSearchTerm.length >= 2,
-  });
+  // Use allBoards for everything to prevent re-renders
+  const boards = allBoards;
 
-  // Combine results based on search state
-  const boards = debouncedSearchTerm ? searchResults : allBoards;
-  const boardsLoading = debouncedSearchTerm ? searchLoading : allBoardsLoading;
-  const boardsError = null;
-
-  const { data: sprint, isLoading: sprintLoading, error: sprintError } = useQuery({
+  const { data: sprint, isLoading: sprintLoading, error: sprintError, refetch: refetchSprint } = useQuery({
     queryKey: ['currentSprint', selectedBoard],
-    queryFn: () => cachedApi.getJiraSprint(selectedBoard), // Using cached version
+    queryFn: async () => {
+      if (!selectedBoard) return null;
+      // Fetch directly from API, bypassing cache
+      const response = await fetch(`http://localhost:3001/api/jira/current-sprint/${selectedBoard}`);
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      const data = await response.json();
+      console.log(`Fetched sprint for board ${selectedBoard}:`, data.id, data.name);
+      return data;
+    },
     enabled: !!selectedBoard,
     staleTime: 5 * 60 * 1000, // Consider data fresh for 5 minutes
   });
 
-  const { data: issues, isLoading: issuesLoading, error: issuesError } = useQuery({
+  const { data: issues, isLoading: issuesLoading, error: issuesError, refetch: refetchIssues } = useQuery({
     queryKey: ['sprintIssues', sprint?.id],
-    queryFn: () => cachedApi.getJiraTickets(sprint.id), // Using cached version
+    queryFn: async () => {
+      if (!sprint?.id) return [];
+      // Fetch directly from API, bypassing cache
+      const response = await fetch(`http://localhost:3001/api/jira/sprint/${sprint.id}/issues`);
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      const data = await response.json();
+      console.log(`Fetched ${data.length} issues for sprint ${sprint.id}:`, data.map(i => i.key));
+      return data;
+    },
     enabled: !!sprint?.id,
     staleTime: 5 * 60 * 1000, // Consider data fresh for 5 minutes
   });
 
-  // Debounce search term
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearchTerm(searchTerm);
-    }, 300);
-    
-    return () => clearTimeout(timer);
-  }, [searchTerm]);
 
   // Save selected board to localStorage whenever it changes
   const handleBoardSelect = (boardId) => {
@@ -89,7 +96,7 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    console.log('Projects data:', boards, 'Search term:', debouncedSearchTerm);
+    console.log('Dashboard: boards =', boards?.length, 'debouncedSearchTerm =', debouncedSearchTerm);
     // Only auto-select first board if there's no saved board and no current selection
     if (boards && boards.length > 0 && !selectedBoard && !savedBoardData) {
       console.log('Setting default board:', boards[0].id);
@@ -112,6 +119,7 @@ export default function Dashboard() {
   // Debounce search term to improve performance
   useEffect(() => {
     const timer = setTimeout(() => {
+      console.log('Setting debounced search term:', searchTerm);
       setDebouncedSearchTerm(searchTerm);
     }, 300);
 
@@ -124,12 +132,42 @@ export default function Dashboard() {
     console.log('Issues data:', issues);
   }, [selectedBoard, sprint, issues]);
 
-  // Filter boards based on debounced search term
-  const filteredBoards = boards?.filter(board => 
-    debouncedSearchTerm === '' || 
-    board.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) || 
-    board.key?.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
-  ) || [];
+  // Filter boards based on search term
+  const filteredBoards = useMemo(() => {
+    if (!boards || boards.length === 0) {
+      console.log('No boards available');
+      return [];
+    }
+    
+    // If no search term, return all boards
+    if (!debouncedSearchTerm || debouncedSearchTerm === '') {
+      console.log('No search, showing all', boards.length, 'boards');
+      return boards;
+    }
+    
+    // Filter boards based on search term
+    const searchLower = debouncedSearchTerm.toLowerCase();
+    console.log('Filtering for:', searchLower);
+    
+    const results = boards.filter(board => {
+      // Check name
+      if (board.name && board.name.toLowerCase().includes(searchLower)) {
+        return true;
+      }
+      // Check key
+      if (board.key && board.key.toLowerCase().includes(searchLower)) {
+        return true;
+      }
+      // Check type
+      if (board.type && board.type.toLowerCase().includes(searchLower)) {
+        return true;
+      }
+      return false;
+    });
+    
+    console.log('Filter results:', results.length, 'matching boards');
+    return results;
+  }, [boards, debouncedSearchTerm]);
 
   if (boardsLoading) {
     return (
@@ -179,15 +217,28 @@ export default function Dashboard() {
               </p>
             )}
           </div>
-          {selectedBoardInfo && (
+          <div className="flex gap-2">
+            {selectedBoardInfo && (
+              <button
+                onClick={clearSavedBoard}
+                className="text-sm text-gray-500 hover:text-gray-700 bg-white px-2 py-1 rounded border border-gray-300 hover:border-gray-400"
+                title="Clear saved project"
+              >
+                Clear saved project
+              </button>
+            )}
             <button
-              onClick={clearSavedBoard}
-              className="text-sm text-gray-500 hover:text-gray-700 bg-white px-2 py-1 rounded border border-gray-300 hover:border-gray-400"
-              title="Clear saved project"
+              onClick={() => {
+                // Clear cache and reload boards
+                localStorage.removeItem('cache_jira_boards');
+                window.location.reload();
+              }}
+              className="text-sm text-red-500 hover:text-red-700 bg-white px-2 py-1 rounded border border-red-300 hover:border-red-400"
+              title="Clear cache and reload"
             >
-              Clear saved project
+              Clear Cache & Reload
             </button>
-          )}
+          </div>
         </div>
       </div>
 
@@ -204,6 +255,11 @@ export default function Dashboard() {
             placeholder="Search by project name or key (e.g., 'WCTV')..."
             className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
           />
+          {searchTerm && (
+            <p className="text-xs text-gray-500 mt-1">
+              Searching for: "{searchTerm}" | Found: {filteredBoards.length} of {boards?.length || 0} boards
+            </p>
+          )}
         </div>
 
         {/* Board Select */}
@@ -220,26 +276,52 @@ export default function Dashboard() {
             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
           >
             <option value="">Select a board...</option>
-            {filteredBoards.map((board) => (
-              <option key={board.id} value={board.id}>
-                {board.name} ({board.key || board.type})
-              </option>
-            ))}
+            {filteredBoards.length > 0 ? (
+              filteredBoards.map((board) => (
+                <option key={board.id} value={board.id}>
+                  {board.name} ({board.key || board.type})
+                </option>
+              ))
+            ) : (
+              <option disabled>No boards found</option>
+            )}
           </select>
           
           {/* Debug info - remove in production */}
           {process.env.NODE_ENV === 'development' && (
-            <div className="mt-2 text-xs text-gray-500">
-              Debug: {boards ? `${boards.length} total boards, ${filteredBoards.length} filtered` : 'No boards loaded'}
-              {debouncedSearchTerm && (
-                <div className="mt-1">
-                  <strong>Search results for "{debouncedSearchTerm}":</strong>
-                  <ul className="mt-1 max-h-40 overflow-y-auto">
-                    {filteredBoards.map(b => (
-                      <li key={b.id}>- {b.id}: {b.name} ({b.key || b.type})</li>
+            <div className="mt-2 text-xs text-gray-500 border-t pt-2">
+              <div>Debug Info:</div>
+              <div>Total boards loaded: {boards ? boards.length : 0}</div>
+              <div>Filtered boards: {filteredBoards.length}</div>
+              <div>Search term: "{searchTerm}"</div>
+              <div>Debounced term: "{debouncedSearchTerm}"</div>
+              
+              {boards && boards.length > 0 && (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-blue-600">Show all boards</summary>
+                  <ul className="mt-1 max-h-40 overflow-y-auto bg-gray-50 p-2 rounded">
+                    {boards.map(b => (
+                      <li key={b.id}>
+                        ID: {b.id} | Name: {b.name} | Key: {b.key || 'N/A'}
+                      </li>
                     ))}
                   </ul>
-                </div>
+                </details>
+              )}
+              
+              {debouncedSearchTerm && filteredBoards.length > 0 && (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-green-600">
+                    Search results ({filteredBoards.length})
+                  </summary>
+                  <ul className="mt-1 max-h-40 overflow-y-auto bg-green-50 p-2 rounded">
+                    {filteredBoards.map(b => (
+                      <li key={b.id}>
+                        {b.name} (Key: {b.key || 'N/A'})
+                      </li>
+                    ))}
+                  </ul>
+                </details>
               )}
             </div>
           )}
@@ -289,7 +371,9 @@ export default function Dashboard() {
       {issues && issues.length > 0 && (
         <div className="bg-white shadow rounded-lg">
           <div className="p-4">
-            <h3 className="text-lg font-medium mb-4">Sprint Issues ({issues.length})</h3>
+            <h3 className="text-lg font-medium mb-4">
+              Sprint Issues ({issues.length}) - Board: {selectedBoard} - Sprint: {sprint?.name}
+            </h3>
             <div className="space-y-2">
               {issues.map((issue) => (
                 <div key={issue.key} className="border p-3 rounded hover:bg-gray-50 transition-colors">
@@ -317,24 +401,6 @@ export default function Dashboard() {
                     <p className="text-xs text-gray-500 mt-1">Assigned to: {issue.assignee}</p>
                   )}
                   <div className="mt-3 flex gap-2">
-                    <button
-                      onClick={() => navigate('/workflow', { 
-                        state: { 
-                          ticket: {
-                            key: issue.key,
-                            summary: issue.summary,
-                            description: issue.description || '',
-                            type: issue.type,
-                            priority: issue.priority,
-                            assignee: issue.assignee,
-                            status: issue.status
-                          }
-                        } 
-                      })}
-                      className="bg-purple-600 text-white px-3 py-1 rounded text-xs hover:bg-purple-700 transition-colors"
-                    >
-                      Complete Workflow
-                    </button>
                     <button
                       onClick={() => navigate('/test-generator', { 
                         state: { 

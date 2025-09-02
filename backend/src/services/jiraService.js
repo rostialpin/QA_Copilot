@@ -1,7 +1,6 @@
 import axios from 'axios';
 import NodeCache from 'node-cache';
 import { logger } from '../utils/logger.js';
-import { MockJiraService } from './mockJiraService.js';
 import { parseJiraUrl, validateJiraConfig } from '../utils/jiraUtils.js';
 
 export class JiraService {
@@ -16,16 +15,8 @@ export class JiraService {
   }
 
   constructor(config = null) {
-    // Check if we should use mock mode
-    this.useMock = process.env.USE_MOCK_JIRA === 'true' || process.env.NODE_ENV === 'demo';
-    
-    // Remove debug logging
-    
-    if (this.useMock) {
-      logger.info('🎭 Using Mock JIRA Service');
-      this.mockService = new MockJiraService();
-      return;
-    }
+    // Always use real JIRA - no mock mode
+    this.useMock = false;
 
     this.cache = new NodeCache({ stdTTL: 300 });
     
@@ -48,32 +39,23 @@ export class JiraService {
     
     // Log configuration status
     if (this.baseURL && this.email && this.apiToken) {
-      logger.info(`JIRA configured for ${this.baseURL}`);
+      logger.info(`✅ JIRA configured for ${this.baseURL}`);
       if (!config) {
-        // Only auto-test connection for environment-based config
+        // Test connection for environment-based config
         this.testConnection().catch(err => {
-          logger.error('JIRA authentication failed, switching to mock mode');
-          this.useMock = true;
-          this.mockService = new MockJiraService();
+          logger.error('❌ JIRA authentication failed:', err.message);
+          throw new Error('JIRA authentication failed. Please check your credentials.');
         });
       }
     } else {
-      logger.warn('JIRA credentials not found, using mock mode');
-      this.useMock = true;
-      this.mockService = new MockJiraService();
+      logger.error('❌ JIRA credentials not found. Please configure JIRA_HOST, JIRA_EMAIL, and JIRA_API_TOKEN in .env file');
+      throw new Error('JIRA credentials not configured');
     }
   }
 
   async makeRequest(endpoint, method = 'GET', data = null) {
-    if (this.useMock) {
-      return this.mockService.makeRequest(endpoint, method, data);
-    }
-
     if (!this.baseURL || !this.email || !this.apiToken) {
-      logger.warn('JIRA not configured, using mock data');
-      this.useMock = true;
-      this.mockService = new MockJiraService();
-      return this.mockService.makeRequest(endpoint, method, data);
+      throw new Error('JIRA not configured. Please set JIRA_HOST, JIRA_EMAIL, and JIRA_API_TOKEN');
     }
 
     const cacheKey = `${method}:${endpoint}`;
@@ -243,9 +225,6 @@ export class JiraService {
   }
 
   async getBoards() {
-    if (this.useMock) {
-      return this.mockService.getBoards();
-    }
 
     try {
       // Try the project search API first (works with service account)
@@ -342,9 +321,6 @@ export class JiraService {
   }
 
   async getCurrentSprint(boardId) {
-    if (this.useMock) {
-      return this.mockService.getCurrentSprint(boardId);
-    }
 
     try {
       const authString = Buffer.from(`${this.email}:${this.apiToken}`).toString('base64');
@@ -523,6 +499,47 @@ export class JiraService {
     } catch (error) {
       logger.error('Failed to search issues, using mock data');
       return this.mockService ? this.mockService.searchIssues(jql, maxResults) : [];
+    }
+  }
+
+  async getRecentProjectIssues(projectKey, maxResults = 50) {
+    try {
+      logger.info(`Fetching recent issues for project ${projectKey}`);
+      
+      // Use JQL to find recent issues in the project
+      const jql = `project = ${projectKey} ORDER BY created DESC`;
+      
+      const authString = Buffer.from(`${this.email}:${this.apiToken}`).toString('base64');
+      const url = `${this.baseURL}/rest/api/2/search?jql=${encodeURIComponent(jql)}&maxResults=${maxResults}`;
+      
+      const response = await axios({
+        method: 'GET',
+        url,
+        headers: {
+          'Authorization': `Basic ${authString}`,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      const data = response.data;
+      
+      const issues = data.issues?.map(issue => ({
+        key: issue.key,
+        summary: issue.fields.summary,
+        description: issue.fields.description || '',
+        type: issue.fields.issuetype?.name || 'Story',
+        status: issue.fields.status?.name || 'To Do',
+        priority: issue.fields.priority?.name || 'Medium',
+        assignee: issue.fields.assignee?.displayName || 'Unassigned',
+        acceptanceCriteria: issue.fields.customfield_10001 || issue.fields.customfield_10004 || ''
+      })) || [];
+      
+      logger.info(`Found ${issues.length} issues for project ${projectKey}`);
+      return issues;
+    } catch (error) {
+      logger.error(`Error fetching issues for project ${projectKey}:`, error.message);
+      throw error;
     }
   }
 }

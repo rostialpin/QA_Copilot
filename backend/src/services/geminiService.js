@@ -71,19 +71,28 @@ export class GeminiService {
     
     if (!this.model) {
       logger.warn('Gemini API not configured, returning mock test cases');
-      return this.generateMockTestCases(ticket, options);
+      logger.warn('API Key status:', this.apiKey ? 'Present' : 'Missing');
+      logger.warn('Model status:', this.currentModel);
+      const mockResult = this.generateMockTestCases(ticket, options);
+      return mockResult.testCases || [];
     }
 
     const prompt = this.buildTestCasePrompt(ticket, options);
+    logger.info('Generating tests with Gemini API for ticket:', ticket.key);
     
     try {
       const result = await this.model.generateContent(prompt);
       const response = await result.response;
       const text = response.text();
-      return this.parseTestCases(text);
+      logger.info('Gemini API response received, parsing test cases');
+      const parsed = this.parseTestCases(text);
+      // Extract testCases array from the parsed result
+      return parsed.testCases || [];
     } catch (error) {
       logger.error('Gemini API error:', error);
-      throw error;
+      logger.warn('Falling back to mock test cases due to API error');
+      const mockResult = this.generateMockTestCases(ticket, options);
+      return mockResult.testCases || [];
     }
   }
 
