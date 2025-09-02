@@ -3,8 +3,6 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { jiraApi } from '../services/jiraApi';
 import { cachedApi } from '../services/cacheService';
-import DemoMode from '../components/DemoMode';
-import CacheStats from '../components/CacheStats';
 
 export default function Dashboard() {
   // Load saved board from localStorage
@@ -20,23 +18,40 @@ export default function Dashboard() {
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const navigate = useNavigate();
 
-  // Single query for boards - always fetch all boards and filter client-side
+  // Fetch all boards once and search boards when needed
   const { data: allBoards, isLoading: boardsLoading, error: boardsError, refetch: refetchBoards } = useQuery({
     queryKey: ['allBoards'],
     queryFn: async () => {
-      // Fetch directly from API, bypassing cache for now
       const response = await fetch('http://localhost:3001/api/jira/boards');
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
-      console.log('Fetched boards directly:', data.length, 'boards');
+      console.log('Fetched all boards:', data.length, 'boards');
       return data;
     },
     staleTime: 5 * 60 * 1000, // Consider data fresh for 5 minutes
     refetchOnWindowFocus: false, // Prevent refetch on window focus
   });
 
-  // Use allBoards for everything to prevent re-renders
-  const boards = allBoards;
+  // Fetch search results separately when there's a search term
+  const { data: searchResults } = useQuery({
+    queryKey: ['searchBoards', debouncedSearchTerm],
+    queryFn: async () => {
+      if (!debouncedSearchTerm || debouncedSearchTerm.trim() === '') return null;
+      
+      const response = await fetch(`http://localhost:3001/api/jira/projects/search?query=${encodeURIComponent(debouncedSearchTerm)}`);
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      const data = await response.json();
+      console.log('Search results for', debouncedSearchTerm, ':', data.length, 'boards');
+      // Backend already returns correct board IDs
+      return data;
+    },
+    enabled: !!debouncedSearchTerm && debouncedSearchTerm.trim() !== '',
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
+  // Use search results when searching, otherwise use all boards
+  const boards = searchResults || allBoards;
 
   const { data: sprint, isLoading: sprintLoading, error: sprintError, refetch: refetchSprint } = useQuery({
     queryKey: ['currentSprint', selectedBoard],
@@ -132,42 +147,8 @@ export default function Dashboard() {
     console.log('Issues data:', issues);
   }, [selectedBoard, sprint, issues]);
 
-  // Filter boards based on search term
-  const filteredBoards = useMemo(() => {
-    if (!boards || boards.length === 0) {
-      console.log('No boards available');
-      return [];
-    }
-    
-    // If no search term, return all boards
-    if (!debouncedSearchTerm || debouncedSearchTerm === '') {
-      console.log('No search, showing all', boards.length, 'boards');
-      return boards;
-    }
-    
-    // Filter boards based on search term
-    const searchLower = debouncedSearchTerm.toLowerCase();
-    console.log('Filtering for:', searchLower);
-    
-    const results = boards.filter(board => {
-      // Check name
-      if (board.name && board.name.toLowerCase().includes(searchLower)) {
-        return true;
-      }
-      // Check key
-      if (board.key && board.key.toLowerCase().includes(searchLower)) {
-        return true;
-      }
-      // Check type
-      if (board.type && board.type.toLowerCase().includes(searchLower)) {
-        return true;
-      }
-      return false;
-    });
-    
-    console.log('Filter results:', results.length, 'matching boards');
-    return results;
-  }, [boards, debouncedSearchTerm]);
+  // No need for client-side filtering - server does the search
+  const filteredBoards = boards || [];
 
   if (boardsLoading) {
     return (
@@ -189,12 +170,6 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Demo Mode for Hackathon */}
-      <DemoMode />
-      
-      {/* Cache Performance Stats */}
-      <CacheStats />
-      
       <div className="px-4 sm:px-0">
         <div className="flex justify-between items-start">
           <div>
@@ -402,12 +377,18 @@ export default function Dashboard() {
                   )}
                   <div className="mt-3 flex gap-2">
                     <button
-                      onClick={() => navigate('/test-generator', { 
+                      onClick={() => navigate('/workflow', { 
                         state: { 
-                          ticketKey: issue.key,
-                          ticketSummary: issue.summary,
-                          ticketDescription: issue.description || '',
-                          ticketType: issue.type
+                          ticket: {
+                            key: issue.key,
+                            summary: issue.summary,
+                            description: issue.description || '',
+                            type: issue.type,
+                            priority: issue.priority,
+                            assignee: issue.assignee,
+                            status: issue.status,
+                            acceptanceCriteria: issue.acceptanceCriteria
+                          }
                         } 
                       })}
                       className="bg-indigo-600 text-white px-3 py-1 rounded text-xs hover:bg-indigo-700 transition-colors"
