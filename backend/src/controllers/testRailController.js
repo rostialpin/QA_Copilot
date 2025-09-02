@@ -40,7 +40,8 @@ export class TestRailController {
   async getTestCases(req, res, next) {
     try {
       const { projectId, suiteId } = req.params;
-      const testCases = await this.testRailService.getTestCases(projectId, suiteId);
+      const { section_id } = req.query; // Get section_id from query params
+      const testCases = await this.testRailService.getTestCases(projectId, suiteId, section_id);
       res.json(testCases);
     } catch (error) {
       logger.error('Error fetching test cases:', error);

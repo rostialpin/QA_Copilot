@@ -155,6 +155,30 @@ export class GeminiService {
           priority: 'Medium',
           steps: this.generateRegressionSteps(ticket, expectedBehavior),
           expectedResult: 'No regression issues - all related features continue to work'
+        },
+        {
+          title: `Performance Impact: ${ticket.summary}`,
+          objective: `Verify the bug fix doesn't negatively impact performance`,
+          preconditions: `Performance monitoring tools available. ${this.extractPreconditions(ticket)}`,
+          priority: 'Medium',
+          steps: [
+            { action: 'Establish baseline performance metrics', expected: 'Baseline recorded' },
+            { action: 'Execute the fixed functionality under normal load', expected: 'Response time within acceptable limits' },
+            { action: 'Compare metrics with baseline', expected: 'No significant performance degradation' }
+          ],
+          expectedResult: 'Performance remains within acceptable thresholds after bug fix'
+        },
+        {
+          title: `Cross-Platform Verification: ${ticket.summary}`,
+          objective: `Ensure the bug fix works across all supported platforms`,
+          preconditions: `Access to all supported platforms. ${this.extractPreconditions(ticket)}`,
+          priority: 'High',
+          steps: [
+            { action: 'Test fix on primary platform', expected: 'Bug is fixed on primary platform' },
+            { action: 'Test fix on secondary platforms', expected: 'Bug is fixed on all platforms' },
+            { action: 'Verify consistent behavior across platforms', expected: 'Behavior is consistent' }
+          ],
+          expectedResult: 'Bug fix is effective and consistent across all platforms'
         }
       ];
     } else {
@@ -196,6 +220,34 @@ export class GeminiService {
           steps: featureSteps.edgeCases,
           expectedResult: 'All edge cases are handled gracefully without system errors',
           testData: this.generateEdgeCaseData(ticket)
+        },
+        {
+          title: `Integration Test: ${ticket.summary}`,
+          objective: `Verify integration with other system components`,
+          preconditions: `All integrated systems available. ${this.extractPreconditions(ticket)}`,
+          priority: 'High',
+          steps: [
+            { action: 'Test data flow to downstream systems', expected: 'Data transmitted correctly' },
+            { action: 'Verify upstream dependencies', expected: 'Dependencies functioning properly' },
+            { action: 'Check API interactions', expected: 'APIs respond as expected' },
+            { action: 'Validate data consistency', expected: 'Data remains consistent across systems' }
+          ],
+          expectedResult: 'Feature integrates seamlessly with other components',
+          testData: this.generateTestData(ticket)
+        },
+        {
+          title: `User Acceptance: ${ticket.summary}`,
+          objective: `Verify feature meets user acceptance criteria and business requirements`,
+          preconditions: `UAT environment configured. ${this.extractPreconditions(ticket)}`,
+          priority: 'High',
+          steps: [
+            { action: 'Complete user workflow end-to-end', expected: 'Workflow completes successfully' },
+            { action: 'Verify business rules implementation', expected: 'Business logic correctly applied' },
+            { action: 'Check UI/UX requirements', expected: 'Interface meets specifications' },
+            { action: 'Validate user feedback incorporation', expected: 'User requirements satisfied' }
+          ],
+          expectedResult: 'Feature meets all acceptance criteria and user expectations',
+          testData: this.generateTestData(ticket)
         }
       ];
       }
