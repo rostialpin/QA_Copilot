@@ -19,7 +19,7 @@
     "react-dom": "^18.3.1",
     "react-hot-toast": "^2.4.1",
     "react-router-dom": "^6.26.2",
-    "react-syntax-highlighter": "^15.5.0",
+    "react-syntax-highlighter": "^15.6.6",
     "recharts": "^2.12.7"
   },
   "devDependencies": {
@@ -27,6 +27,10 @@
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.13",
-    "vite": "^5.4.8"
+    "vite": "^5.4.19"
+  },
+  "overrides": {
+    "esbuild": "^0.25.0",
+    "prismjs": "^1.30.0"
   }
 }
