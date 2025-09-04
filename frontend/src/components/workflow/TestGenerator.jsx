@@ -16,6 +16,8 @@ export default function TestGenerator({ ticket, context, onGenerated, tests, isL
     includePlatformVariations: true
   });
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState(0);
+  const [progressMessage, setProgressMessage] = useState('Initializing...');
   const [qualityScore, setQualityScore] = useState(0);
   const [error, setError] = useState(null);
   const [showOptions, setShowOptions] = useState(false);
@@ -28,6 +30,26 @@ export default function TestGenerator({ ticket, context, onGenerated, tests, isL
     
     setIsGenerating(true);
     setError(null);
+    setGenerationProgress(0);
+    setProgressMessage('Initializing AI model...');
+    
+    // Simulate progress updates
+    let progressInterval = setInterval(() => {
+      setGenerationProgress(prev => {
+        if (prev >= 90) {
+          return 90; // Stay at 90% until API completes
+        }
+        const increment = Math.random() * 15 + 5; // Random increment between 5-20
+        return Math.min(90, prev + increment);
+      });
+    }, 800);
+    
+    // Update messages as progress increases
+    setTimeout(() => setProgressMessage('Analyzing ticket requirements...'), 500);
+    setTimeout(() => setProgressMessage('Identifying test scenarios...'), 1500);
+    setTimeout(() => setProgressMessage('Generating test steps...'), 2500);
+    setTimeout(() => setProgressMessage('Adding validation points...'), 3500);
+    setTimeout(() => setProgressMessage('Finalizing test cases...'), 4500);
     
     try {
       // Get workflow ID from localStorage or generate a new one
@@ -73,8 +95,15 @@ export default function TestGenerator({ ticket, context, onGenerated, tests, isL
       console.error('Error generating tests:', err);
       const errorMessage = err.response?.data?.error || 'Failed to generate tests. Please try again.';
       setError(errorMessage);
+      clearInterval(progressInterval); // Clear interval on error
     } finally {
+      clearInterval(progressInterval); // Clear interval when done
       setIsGenerating(false);
+      setGenerationProgress(100);
+      setTimeout(() => {
+        setGenerationProgress(0);
+        setProgressMessage('Initializing...');
+      }, 500);
     }
   };
 
@@ -188,18 +217,26 @@ export default function TestGenerator({ ticket, context, onGenerated, tests, isL
         </button>
       )}
 
-      {/* Generating Animation */}
+      {/* Generating Animation with Dynamic Progress */}
       {isGenerating && (
         <div className="bg-white rounded-lg border border-gray-200 p-8">
           <div className="flex flex-col items-center">
             <Loader2 className="h-8 w-8 animate-spin text-indigo-600 mb-4" />
             <p className="text-gray-600 font-medium">Generating test cases...</p>
             <p className="text-sm text-gray-500 mt-2">
-              Analyzing requirements and context...
+              {progressMessage}
             </p>
-            <div className="w-64 bg-gray-200 rounded-full h-2 mt-4">
-              <div className="bg-indigo-600 h-2 rounded-full animate-pulse" style={{ width: '60%' }}></div>
+            <div className="w-64 bg-gray-200 rounded-full h-3 mt-4 overflow-hidden">
+              <div 
+                className="bg-gradient-to-r from-indigo-500 to-purple-600 h-3 rounded-full transition-all duration-500 ease-out relative"
+                style={{ width: `${generationProgress}%` }}
+              >
+                <div className="absolute inset-0 bg-white/30 animate-pulse"></div>
+              </div>
             </div>
+            <p className="text-xs text-gray-400 mt-2">
+              {Math.round(generationProgress)}% complete
+            </p>
           </div>
         </div>
       )}

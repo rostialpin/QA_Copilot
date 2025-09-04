@@ -219,7 +219,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="bg-white shadow rounded-lg p-4 space-y-4">
+      <div className="bg-white/95 backdrop-blur-sm shadow-xl rounded-xl p-4 space-y-4 card-hover border border-blue-100/50">
         {/* Search Input */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -306,7 +306,7 @@ export default function Dashboard() {
       </div>
 
       {sprintLoading && selectedBoard && (
-        <div className="bg-white shadow rounded-lg p-6">
+        <div className="bg-white/95 backdrop-blur-sm shadow-xl rounded-xl p-6 animate-pulse card-hover">
           <div className="animate-pulse">
             <div className="h-4 bg-gray-200 rounded w-1/4"></div>
             <div className="h-3 bg-gray-200 rounded w-1/3 mt-2"></div>
@@ -315,7 +315,7 @@ export default function Dashboard() {
       )}
 
       {sprint && (
-        <div className="bg-white shadow rounded-lg p-6">
+        <div className="bg-white/95 backdrop-blur-sm shadow-xl rounded-xl p-6 animate-pulse card-hover">
           <h3 className="text-lg font-medium text-gray-900">{sprint.name}</h3>
           <p className="text-sm text-gray-600">Status: {sprint.state}</p>
           {sprint.startDate && sprint.endDate && (
@@ -327,13 +327,13 @@ export default function Dashboard() {
       )}
 
       {!sprint && selectedBoard && !sprintLoading && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+        <div className="bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-200 rounded-xl p-4 animate-appear">
           <p className="text-yellow-800">No active sprint found for this board</p>
         </div>
       )}
 
       {issuesLoading && (
-        <div className="bg-white shadow rounded-lg p-4">
+        <div className="bg-white/95 backdrop-blur-sm shadow-xl rounded-xl p-4 card-hover">
           <div className="animate-pulse space-y-2">
             {[1,2,3].map(i => (
               <div key={i} className="border p-3 rounded">
@@ -346,7 +346,7 @@ export default function Dashboard() {
       )}
 
       {issues && issues.length > 0 && (
-        <div className="bg-white shadow rounded-lg">
+        <div className="bg-white/95 backdrop-blur-sm shadow-xl rounded-xl card-hover overflow-hidden">
           <div className="p-4">
             <h3 className="text-lg font-medium mb-4">
               Sprint Issues ({issues.length}) - Board: {selectedBoard} - Sprint: {sprint?.name}
@@ -355,7 +355,7 @@ export default function Dashboard() {
               {issues.map((issue) => {
                 const isExpanded = expandedTickets.has(issue.key);
                 return (
-                  <div key={issue.key} className="border rounded-lg overflow-hidden">
+                  <div key={issue.key} className="border border-gray-200 rounded-xl overflow-hidden transition-all duration-200 hover:shadow-lg hover:border-blue-300 card-hover">
                     {/* Ticket Header - Always Visible */}
                     <div 
                       className="p-3 hover:bg-gray-50 transition-colors cursor-pointer"
@@ -464,7 +464,7 @@ export default function Dashboard() {
       )}
 
       {issues && issues.length === 0 && (
-        <div className="bg-white shadow rounded-lg p-4">
+        <div className="bg-white/95 backdrop-blur-sm shadow-xl rounded-xl p-4 card-hover">
           <p className="text-gray-500">No issues in this sprint</p>
         </div>
       )}

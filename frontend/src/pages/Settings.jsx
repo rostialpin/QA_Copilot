@@ -77,7 +77,12 @@ export default function Settings() {
         toast.error(response.data.message || 'JIRA connection failed');
       }
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'JIRA connection failed';
+      let errorMessage = 'JIRA connection failed';
+      if (error.response?.status === 401) {
+        errorMessage = 'Invalid JIRA credentials. Please check your email and API token.';
+      } else if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      }
       setJiraStatus({ testing: false, connected: false, error: errorMessage });
       toast.error(errorMessage);
     }
@@ -281,13 +286,40 @@ export default function Settings() {
               placeholder="JIRA API Token"
             />
             <p className="mt-1 text-sm text-gray-500">
-              Generate an API token from your Atlassian account settings
+              Generate an API token from your{' '}
+              <a 
+                href="https://id.atlassian.com/manage-profile/security/api-tokens" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-indigo-600 hover:text-indigo-500 underline"
+              >
+                Atlassian account settings
+              </a>
+            </p>
+          </div>
+
+          {/* Help Section for JIRA Setup */}
+          <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+            <h4 className="text-sm font-medium text-blue-900 mb-2">📋 How to connect JIRA:</h4>
+            <ol className="text-sm text-blue-700 space-y-1">
+              <li>1. Enter your JIRA URL (e.g., https://company.atlassian.net)</li>
+              <li>2. Use your work email address</li>
+              <li>3. Create an API token from your Atlassian account</li>
+              <li>4. Click "Test Connection" to verify</li>
+            </ol>
+            <p className="text-xs text-blue-600 mt-2">
+              Note: API tokens are more secure than passwords and required for JIRA Cloud
             </p>
           </div>
           
           {jiraStatus.error && (
             <div className="p-3 rounded-md bg-red-50 border border-red-200">
               <p className="text-sm text-red-700">{jiraStatus.error}</p>
+              {jiraStatus.error.includes('Invalid JIRA credentials') && (
+                <p className="text-xs text-red-600 mt-1">
+                  Make sure you're using an API token, not your password
+                </p>
+              )}
             </div>
           )}
           

@@ -6,6 +6,7 @@ import {
   ChevronRight, ChevronDown, Folder
 } from 'lucide-react';
 import axios from 'axios';
+import SuccessAnimation from '../SuccessAnimation';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -41,6 +42,7 @@ export default function JavaSeleniumGenerator({
   const [saveResult, setSaveResult] = useState(null);
   const [showPathInstructions, setShowPathInstructions] = useState(false);
   const [expandedNodes, setExpandedNodes] = useState(new Set());
+  const [showSuccessAnimation, setShowSuccessAnimation] = useState(false);
 
   // Validate repository when path changes
   useEffect(() => {
@@ -196,6 +198,9 @@ export default function JavaSeleniumGenerator({
       
       setGeneratedTest(response.data.test);
       onGenerated && onGenerated(response.data.test);
+      
+      // Show automation success animation after generation (not save)
+      setShowSuccessAnimation(true);
     } catch (error) {
       console.error('Error generating test:', error);
       setValidationError(error.message || 'Failed to generate test. Please check console for details.');
@@ -221,6 +226,8 @@ export default function JavaSeleniumGenerator({
       });
       
       setSaveResult(response.data);
+      
+      // Don't show animation on save anymore - moved to generation
       
       // Open in IDE if requested
       if (saveOptions.openInIDE && response.data.path) {
@@ -746,6 +753,13 @@ export default function JavaSeleniumGenerator({
         </div>
       )}
 
+      {/* Success Animation */}
+      <SuccessAnimation
+        type="automation"
+        testCount={1}
+        show={showSuccessAnimation}
+        onComplete={() => setShowSuccessAnimation(false)}
+      />
     </div>
   );
 }
