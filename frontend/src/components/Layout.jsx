@@ -9,11 +9,9 @@ import {
 
 export default function Layout() {
   const navigation = [
-    { name: 'Dashboard', href: '/', icon: HomeIcon },
-    { name: '✨ Complete Workflow', href: '/workflow', icon: BeakerIcon, highlight: true },
-    { name: '🚀 Smart Generator', href: '/unified-generator', icon: BeakerIcon },
-    { name: 'Test Generator', href: '/test-generator', icon: BeakerIcon },
-    { name: 'Cypress Generator', href: '/cypress-generator', icon: CodeBracketIcon },
+    { name: 'Sprint Dashboard', href: '/', icon: HomeIcon },
+    { name: '✨ Create Test Cases', href: '/workflow', icon: BeakerIcon, highlight: true },
+    { name: '☕ Automate Tests', href: '/automate-tests', icon: CodeBracketIcon },
     { name: 'TestRail', href: '/testrail', icon: FolderOpenIcon },
     { name: 'Settings', href: '/settings', icon: Cog6ToothIcon },
   ];

@@ -13,6 +13,7 @@ import TestReviewer from './workflow/TestReviewer';
 import TestRailSaver from './workflow/TestRailSaver';
 import CypressConverter from './workflow/CypressConverter';
 import WorkflowSummary from './workflow/WorkflowSummary';
+import JavaSeleniumGenerator from './workflow/JavaSeleniumGenerator';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -22,7 +23,8 @@ const WORKFLOW_STEPS = [
   { id: 3, name: 'generateTests', label: 'Generate Tests', icon: TestTube },
   { id: 4, name: 'reviewTests', label: 'Review Tests', icon: CheckCircle },
   { id: 5, name: 'saveToTestRail', label: 'Save to TestRail', icon: Save },
-  { id: 6, name: 'generateCypress', label: 'Generate Cypress', icon: Code, optional: true }
+  { id: 6, name: 'generateSelenium', label: '☕ Java Selenium', icon: Zap, highlight: true },
+  { id: 7, name: 'generateCypress', label: 'Generate Cypress', icon: Code, optional: true }
 ];
 
 export default function WorkflowWizard({ initialTicket = null }) {
@@ -41,6 +43,7 @@ export default function WorkflowWizard({ initialTicket = null }) {
   const [generatedTests, setGeneratedTests] = useState([]);
   const [reviewedTests, setReviewedTests] = useState([]);
   const [savedTests, setSavedTests] = useState([]);
+  const [seleniumTest, setSeleniumTest] = useState(null);
   const [cypressCode, setCypressCode] = useState([]);
 
   // Initialize workflow on mount
@@ -56,6 +59,8 @@ export default function WorkflowWizard({ initialTicket = null }) {
       });
       setWorkflowId(response.data.workflowId);
       setWorkflowData(response.data.workflow);
+      // Store workflow ID in localStorage for child components
+      localStorage.setItem('currentWorkflowId', response.data.workflowId);
       
       // Check for saved progress
       const savedProgress = localStorage.getItem(`workflow_${response.data.workflowId}`);
@@ -126,6 +131,11 @@ export default function WorkflowWizard({ initialTicket = null }) {
       reviewedTests: reviewedTests?.length || 0
     });
     
+    // Don't set loading for review step
+    if (step.name !== 'reviewTests') {
+      setIsLoading(true);
+    }
+    
     try {
       let result;
       
@@ -147,15 +157,11 @@ export default function WorkflowWizard({ initialTicket = null }) {
           break;
           
         case 'generateTests':
-          // First ensure previous steps are complete
-          if (selectedTicket && selectedContext) {
-            // Re-submit ticket and context in case backend restarted
-            await executeStep('selectTicket', selectedTicket);
-            await executeStep('selectContext', selectedContext);
-          }
-          
           console.log('Calling generateTests API...');
+          // Pass ticket and context directly with the generate request
           result = await executeStep('generateTests', {
+            ticket: selectedTicket,
+            context: selectedContext,
             coverageLevel: 'standard',
             includeNegativeTests: true,
             includePlatformVariations: true
@@ -169,9 +175,9 @@ export default function WorkflowWizard({ initialTicket = null }) {
           break;
           
         case 'reviewTests':
-          // If no reviewed tests yet, use generated tests
-          const testsToReview = reviewedTests.length > 0 ? reviewedTests : generatedTests;
-          result = await executeStep('reviewTests', testsToReview);
+          // Tests are already generated and stored in state, no API call needed
+          // Immediately turn off loading since we're not making any API calls
+          setIsLoading(false);
           break;
           
         case 'saveToTestRail':
@@ -180,6 +186,11 @@ export default function WorkflowWizard({ initialTicket = null }) {
             tests: reviewedTests
           });
           setSavedTests(result.savedTests || []);
+          break;
+          
+        case 'generateSelenium':
+          // Skip the backend workflow step for now as it's not implemented
+          // Just move to the next step - the component handles everything locally
           break;
           
         case 'generateCypress':
@@ -197,6 +208,11 @@ export default function WorkflowWizard({ initialTicket = null }) {
       }
     } catch (err) {
       // Error already handled in executeStep
+    } finally {
+      // Ensure loading is turned off for steps that don't make API calls
+      if (step.name === 'reviewTests') {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -209,6 +225,10 @@ export default function WorkflowWizard({ initialTicket = null }) {
   };
 
   const handleSkipCypress = () => {
+    setIsComplete(true);
+  };
+
+  const handleComplete = () => {
     setIsComplete(true);
   };
 
@@ -294,6 +314,10 @@ export default function WorkflowWizard({ initialTicket = null }) {
             tests={generatedTests}
             onReview={setReviewedTests}
             reviewed={reviewedTests}
+            onSkipToAutomation={() => {
+              // Skip TestRail and go directly to Selenium generation
+              setCurrentStep(6); // generateSelenium step
+            }}
           />
         );
         
@@ -304,6 +328,17 @@ export default function WorkflowWizard({ initialTicket = null }) {
             context={selectedContext}
             onSaved={setSavedTests}
             saved={savedTests}
+            isLoading={isLoading}
+          />
+        );
+        
+      case 'generateSelenium':
+        return (
+          <JavaSeleniumGenerator
+            tests={reviewedTests}
+            ticket={selectedTicket}
+            onGenerated={setSeleniumTest}
+            generatedCode={seleniumTest}
             isLoading={isLoading}
           />
         );
@@ -339,19 +374,15 @@ export default function WorkflowWizard({ initialTicket = null }) {
 
   return (
     <div className="max-w-7xl mx-auto p-6">
-      {/* Header */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <Zap className="h-6 w-6 text-yellow-500" />
-            QA Copilot Workflow
-          </h1>
-          <span className="text-sm text-gray-500">
-            Workflow ID: {workflowId?.slice(-8) || 'Loading...'}
+      {/* Compact Progress Bar */}
+      <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg shadow-sm border border-indigo-100 p-3 mb-4">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-medium text-gray-700">
+            Workflow ID: {workflowId?.slice(-8) || 'emo-user'}
           </span>
         </div>
         
-        {/* Progress Steps */}
+        {/* Compact Progress Steps */}
         <div className="flex items-center justify-between">
           {WORKFLOW_STEPS.filter(step => !hasPreSelectedTicket || step.id !== 1).map((step, index) => {
             const isActive = step.id === currentStep;
@@ -363,31 +394,31 @@ export default function WorkflowWizard({ initialTicket = null }) {
                 <div className="flex flex-col items-center">
                   <div
                     className={`
-                      w-10 h-10 rounded-full flex items-center justify-center
-                      ${isActive ? 'bg-indigo-600 text-white' : 
+                      w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium
+                      ${isActive ? 'bg-indigo-600 text-white ring-2 ring-indigo-300' : 
                         isCompleted ? 'bg-green-500 text-white' : 
-                        'bg-gray-200 text-gray-400'}
+                        'bg-gray-200 text-gray-500'}
                     `}
                   >
                     {isCompleted ? (
-                      <CheckCircle className="h-5 w-5" />
+                      <CheckCircle className="h-4 w-4" />
                     ) : (
-                      <Icon className="h-5 w-5" />
+                      <span>{step.id}</span>
                     )}
                   </div>
                   <span className={`
-                    text-xs mt-2 text-center
+                    text-xs mt-1 text-center
                     ${isActive ? 'text-indigo-600 font-medium' : 
                       isCompleted ? 'text-green-600' : 
                       'text-gray-400'}
                   `}>
                     {step.label}
-                    {step.optional && <span className="block text-xs">(Optional)</span>}
+                    {step.optional && <span className="text-xs opacity-70">(Optional)</span>}
                   </span>
                 </div>
                 {index < WORKFLOW_STEPS.filter(s => !hasPreSelectedTicket || s.id !== 1).length - 1 && (
                   <div className={`
-                    flex-1 h-0.5 mx-2 mt-5
+                    flex-1 h-0.5 mx-2 -mt-4
                     ${isCompleted ? 'bg-green-500' : 'bg-gray-200'}
                   `} />
                 )}
@@ -413,7 +444,7 @@ export default function WorkflowWizard({ initialTicket = null }) {
           Step {currentStep}: {WORKFLOW_STEPS[currentStep - 1].label}
         </h2>
         
-        {isLoading && !generatedTests.length ? (
+        {isLoading && currentStep !== 4 ? ( // Don't show loading spinner for review step (step 4)
           <div className="flex flex-col items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-indigo-600 mb-4" />
             <p className="text-gray-600">Processing...</p>
@@ -437,7 +468,23 @@ export default function WorkflowWizard({ initialTicket = null }) {
         </button>
 
         <div className="flex gap-2">
-          {currentStep === 5 && (
+          {currentStep === 6 && (
+            <>
+              <button
+                onClick={handleComplete}
+                className="px-4 py-2 text-green-600 bg-white border border-green-300 rounded-lg hover:bg-green-50"
+              >
+                Complete Workflow
+              </button>
+              <button
+                onClick={() => setCurrentStep(currentStep + 1)}
+                className="px-4 py-2 text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Skip to Cypress
+              </button>
+            </>
+          )}
+          {currentStep === 7 && (
             <button
               onClick={handleSkipCypress}
               className="px-4 py-2 text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"

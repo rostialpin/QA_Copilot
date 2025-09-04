@@ -318,7 +318,7 @@ ${contextualGuidance}
 
 REQUIREMENTS:
 =============
-Generate ${types.length} to ${types.length + 2} test cases covering:
+Generate 4 to 6 test cases covering:
 ${types.includes('positive') ? '- Positive/Happy path scenarios' : ''}
 ${types.includes('negative') ? '- Negative scenarios and error handling' : ''}
 ${types.includes('edge') ? '- Edge cases and boundary conditions' : ''}

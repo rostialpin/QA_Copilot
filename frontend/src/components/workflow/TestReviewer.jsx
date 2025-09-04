@@ -1,26 +1,32 @@
 import { useState, useEffect } from 'react';
-import { Edit2, Check, X, ChevronDown, ChevronUp, Plus, Trash2, FileText } from 'lucide-react';
+import { Edit2, Check, X, ChevronDown, ChevronUp, Plus, Trash2, FileText, Zap, Save } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
-export default function TestReviewer({ tests, onReview, reviewed }) {
+export default function TestReviewer({ tests, onReview, reviewed, onSkipToAutomation }) {
   const [editedTests, setEditedTests] = useState([]);
   const [editingId, setEditingId] = useState(null);
   const [expandedTests, setExpandedTests] = useState(new Set());
   const [viewMode, setViewMode] = useState('formatted'); // 'formatted' or 'simple'
+  const [skipTestRail, setSkipTestRail] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (tests && tests.length > 0) {
-      // Convert tests to TestRail format if they don't have steps already
+      // Immediately set tests without delay
       const formattedTests = tests.map(test => {
         if (!test.steps || test.steps.length === 0) {
-          // Parse the description to extract steps if possible
           const steps = parseTestIntoSteps(test);
           return { ...test, steps };
         }
         return test;
       });
       setEditedTests(reviewed.length > 0 ? reviewed : formattedTests);
+      // Auto-approve tests after a short delay for better UX
+      if (reviewed.length === 0) {
+        setTimeout(() => onReview(formattedTests), 100);
+      }
     }
-  }, [tests]);
+  }, [tests, reviewed, onReview]);
 
   // Parse test description into structured steps
   const parseTestIntoSteps = (test) => {
@@ -372,6 +378,81 @@ export default function TestReviewer({ tests, onReview, reviewed }) {
       {editedTests.length === 0 && (
         <div className="bg-gray-50 rounded-lg p-8 text-center">
           <p className="text-gray-500">No test cases to review</p>
+        </div>
+      )}
+
+      {/* Action Buttons */}
+      {editedTests.length > 0 && (
+        <div className="mt-6 space-y-4">
+          {/* Skip TestRail Option */}
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={skipTestRail}
+                onChange={(e) => setSkipTestRail(e.target.checked)}
+                className="rounded text-amber-600 focus:ring-amber-500"
+              />
+              <span className="text-sm font-medium text-amber-900">
+                Skip TestRail Save (Demo Mode)
+              </span>
+            </label>
+            <p className="text-xs text-amber-700 mt-1 ml-6">
+              Use this option for testing - tests won't be saved to TestRail but can still be automated
+            </p>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex gap-3 justify-end">
+            <button
+              onClick={() => {
+                // Store reviewed tests in session for automation
+                sessionStorage.setItem('reviewedTests', JSON.stringify(editedTests));
+                sessionStorage.setItem('skipTestRail', skipTestRail.toString());
+                
+                // Navigate to automation page
+                navigate('/automate-tests', {
+                  state: {
+                    fromReview: true,
+                    tests: editedTests,
+                    skipTestRail
+                  }
+                });
+              }}
+              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2"
+            >
+              <Zap className="h-4 w-4" />
+              Generate Java Selenium Tests
+            </button>
+
+            {!skipTestRail && (
+              <button
+                onClick={() => {
+                  onReview(editedTests);
+                  // This will trigger the parent to move to next step (Save to TestRail)
+                }}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2"
+              >
+                <Save className="h-4 w-4" />
+                Save to TestRail & Continue
+              </button>
+            )}
+
+            {skipTestRail && (
+              <button
+                onClick={() => {
+                  onReview(editedTests);
+                  // Skip directly to automation
+                  if (onSkipToAutomation) {
+                    onSkipToAutomation();
+                  }
+                }}
+                className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 flex items-center gap-2"
+              >
+                Skip to Next Step
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>

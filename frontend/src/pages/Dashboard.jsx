@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { jiraApi } from '../services/jiraApi';
 import { cachedApi } from '../services/cacheService';
+import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
 
 export default function Dashboard() {
   // Load saved board from localStorage
@@ -16,6 +17,7 @@ export default function Dashboard() {
   const [selectedBoardInfo, setSelectedBoardInfo] = useState(savedBoardData || null);
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  const [expandedTickets, setExpandedTickets] = useState(new Set());
   const navigate = useNavigate();
 
   // Fetch all boards once and search boards when needed
@@ -173,9 +175,9 @@ export default function Dashboard() {
       <div className="px-4 sm:px-0">
         <div className="flex justify-between items-start">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">Sprint Overview</h2>
+            <h2 className="text-2xl font-bold text-gray-900">Sprint Dashboard</h2>
             <p className="mt-1 text-sm text-gray-600">
-              Current sprint status and test coverage
+              Monitor your current sprint and select tickets for test automation
             </p>
             {selectedBoardInfo && (
               <p className="mt-1 text-sm text-indigo-600">
@@ -350,65 +352,112 @@ export default function Dashboard() {
               Sprint Issues ({issues.length}) - Board: {selectedBoard} - Sprint: {sprint?.name}
             </h3>
             <div className="space-y-2">
-              {issues.map((issue) => (
-                <div key={issue.key} className="border p-3 rounded hover:bg-gray-50 transition-colors">
-                  <div className="flex justify-between items-start">
-                    <span className="font-medium text-sm text-indigo-600">{issue.key}</span>
-                    <div className="flex gap-2">
-                      <span className={`text-xs px-2 py-1 rounded ${
-                        issue.type === 'Bug' ? 'bg-red-100 text-red-700' :
-                        issue.type === 'Story' ? 'bg-blue-100 text-blue-700' :
-                        'bg-gray-100 text-gray-700'
-                      }`}>
-                        {issue.type}
-                      </span>
-                      <span className={`text-xs px-2 py-1 rounded ${
-                        issue.status === 'Done' ? 'bg-green-100 text-green-700' :
-                        issue.status === 'In Progress' ? 'bg-yellow-100 text-yellow-700' :
-                        'bg-gray-100 text-gray-700'
-                      }`}>
-                        {issue.status}
-                      </span>
-                    </div>
-                  </div>
-                  <p className="text-sm text-gray-600 mt-1">{issue.summary}</p>
-                  {issue.assignee && (
-                    <p className="text-xs text-gray-500 mt-1">Assigned to: {issue.assignee}</p>
-                  )}
-                  <div className="mt-3 flex gap-2">
-                    <button
-                      onClick={() => navigate('/workflow', { 
-                        state: { 
-                          ticket: {
-                            key: issue.key,
-                            summary: issue.summary,
-                            description: issue.description || '',
-                            type: issue.type,
-                            priority: issue.priority,
-                            assignee: issue.assignee,
-                            status: issue.status,
-                            acceptanceCriteria: issue.acceptanceCriteria
-                          }
-                        } 
-                      })}
-                      className="bg-indigo-600 text-white px-3 py-1 rounded text-xs hover:bg-indigo-700 transition-colors"
-                    >
-                      Generate Tests
-                    </button>
-                    <button
-                      onClick={() => navigate('/cypress-generator', {
-                        state: {
-                          ticketKey: issue.key,
-                          ticketSummary: issue.summary
+              {issues.map((issue) => {
+                const isExpanded = expandedTickets.has(issue.key);
+                return (
+                  <div key={issue.key} className="border rounded-lg overflow-hidden">
+                    {/* Ticket Header - Always Visible */}
+                    <div 
+                      className="p-3 hover:bg-gray-50 transition-colors cursor-pointer"
+                      onClick={() => {
+                        const newExpanded = new Set(expandedTickets);
+                        if (isExpanded) {
+                          newExpanded.delete(issue.key);
+                        } else {
+                          newExpanded.add(issue.key);
                         }
-                      })}
-                      className="bg-green-600 text-white px-3 py-1 rounded text-xs hover:bg-green-700 transition-colors"
+                        setExpandedTickets(newExpanded);
+                      }}
                     >
-                      Generate Cypress
-                    </button>
+                      <div className="flex justify-between items-start">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-sm text-indigo-600">{issue.key}</span>
+                          {isExpanded ? 
+                            <ChevronUpIcon className="h-4 w-4 text-gray-500" /> : 
+                            <ChevronDownIcon className="h-4 w-4 text-gray-500" />
+                          }
+                        </div>
+                        <div className="flex gap-2">
+                          <span className={`text-xs px-2 py-1 rounded ${
+                            issue.type === 'Bug' ? 'bg-red-100 text-red-700' :
+                            issue.type === 'Story' ? 'bg-blue-100 text-blue-700' :
+                            'bg-gray-100 text-gray-700'
+                          }`}>
+                            {issue.type}
+                          </span>
+                          <span className={`text-xs px-2 py-1 rounded ${
+                            issue.status === 'Done' ? 'bg-green-100 text-green-700' :
+                            issue.status === 'In Progress' ? 'bg-yellow-100 text-yellow-700' :
+                            'bg-gray-100 text-gray-700'
+                          }`}>
+                            {issue.status}
+                          </span>
+                        </div>
+                      </div>
+                      <p className="text-sm text-gray-600 mt-1">{issue.summary}</p>
+                      {issue.assignee && (
+                        <p className="text-xs text-gray-500 mt-1">Assigned to: {issue.assignee}</p>
+                      )}
+                    </div>
+                    
+                    {/* Expanded Details */}
+                    {isExpanded && (
+                      <div className="bg-gray-50 p-3 border-t">
+                        {issue.description && (
+                          <div className="mb-3">
+                            <h4 className="text-xs font-semibold text-gray-700 mb-1">Description:</h4>
+                            <p className="text-sm text-gray-600 whitespace-pre-wrap">
+                              {issue.description.substring(0, 500)}
+                              {issue.description.length > 500 && '...'}
+                            </p>
+                          </div>
+                        )}
+                        
+                        {issue.acceptanceCriteria && (
+                          <div className="mb-3">
+                            <h4 className="text-xs font-semibold text-gray-700 mb-1">Acceptance Criteria:</h4>
+                            <p className="text-sm text-gray-600 whitespace-pre-wrap">
+                              {issue.acceptanceCriteria}
+                            </p>
+                          </div>
+                        )}
+                        
+                        {issue.priority && (
+                          <div className="mb-3">
+                            <span className="text-xs font-semibold text-gray-700">Priority: </span>
+                            <span className="text-sm text-gray-600">{issue.priority}</span>
+                          </div>
+                        )}
+                        
+                        <div className="mt-3 flex gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate('/workflow', { 
+                                state: { 
+                                  ticket: {
+                                    key: issue.key,
+                                    summary: issue.summary,
+                                    description: issue.description || '',
+                                    type: issue.type,
+                                    priority: issue.priority,
+                                    assignee: issue.assignee,
+                                    status: issue.status,
+                                    acceptanceCriteria: issue.acceptanceCriteria
+                                  }
+                                } 
+                              })
+                            }}
+                            className="bg-indigo-600 text-white px-4 py-2 rounded text-sm hover:bg-indigo-700 transition-colors flex items-center gap-1"
+                          >
+                            ✨ Create Test Cases
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>

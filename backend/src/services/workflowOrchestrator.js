@@ -173,13 +173,30 @@ export class WorkflowOrchestrator {
     try {
       logger.info(`Step 3: Generating tests for workflow ${workflowId}`);
       
-      // Get ticket and context from previous steps
-      if (!workflow.steps[1].data || !workflow.steps[2].data) {
-        throw new Error('Missing required data from previous steps. Please complete ticket selection and context selection first.');
-      }
+      // Get ticket and context from options if provided directly (optimized path)
+      // Otherwise fall back to workflow steps (legacy path)
+      let ticket, context;
       
-      const ticket = workflow.steps[1].data.filtered;
-      const context = workflow.steps[2].data;
+      if (options.ticket && options.context) {
+        // Direct data provided - skip workflow step lookups
+        ticket = options.ticket;
+        context = options.context;
+        
+        // Store in workflow for consistency
+        if (!workflow.steps[1].data) {
+          workflow.steps[1] = { name: 'selectTicket', status: 'completed', data: { filtered: ticket } };
+        }
+        if (!workflow.steps[2].data) {
+          workflow.steps[2] = { name: 'selectContext', status: 'completed', data: context };
+        }
+      } else {
+        // Legacy path - get from workflow steps
+        if (!workflow.steps[1].data || !workflow.steps[2].data) {
+          throw new Error('Missing required data from previous steps. Please complete ticket selection and context selection first.');
+        }
+        ticket = workflow.steps[1].data.filtered;
+        context = workflow.steps[2].data;
+      }
       
       // Prepare generation options with patterns
       const generationOptions = {
@@ -548,8 +565,13 @@ export class WorkflowOrchestrator {
   calculateQualityScore(generatedTests, patterns) {
     let score = 70; // Base score
     
+    // Check if patterns exist
+    if (!patterns) {
+      return score;
+    }
+    
     // Check if naming follows pattern
-    if (patterns.naming.length > 0) {
+    if (patterns.naming && patterns.naming.length > 0) {
       const followsNaming = generatedTests.every(test => 
         patterns.naming.some(pattern => test.title.includes(pattern))
       );
@@ -557,7 +579,7 @@ export class WorkflowOrchestrator {
     }
     
     // Check if steps follow patterns
-    if (patterns.steps.length > 0) {
+    if (patterns.steps && patterns.steps.length > 0) {
       score += 10;
     }
     
