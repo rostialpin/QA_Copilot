@@ -27,6 +27,7 @@ export default function TestRailSelector({
   const [selectedTests, setSelectedTests] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [projectSearchTerm, setProjectSearchTerm] = useState('');
   const [previewTest, setPreviewTest] = useState(null);
 
   // Load projects on mount
@@ -210,6 +211,12 @@ export default function TestRailSelector({
     );
   };
 
+  // Filter projects based on search term
+  const filteredProjects = projects.filter(project => 
+    !projectSearchTerm || 
+    project.name.toLowerCase().includes(projectSearchTerm.toLowerCase())
+  );
+
   return (
     <div className="grid grid-cols-3 gap-6">
       {/* Left Panel - Navigation */}
@@ -219,6 +226,19 @@ export default function TestRailSelector({
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Select Project
           </label>
+          
+          {/* Project Search */}
+          <div className="relative mb-2">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search projects..."
+              value={projectSearchTerm}
+              onChange={(e) => setProjectSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-3 py-2 border rounded-md"
+            />
+          </div>
+          
           <select
             value={selectedProject?.id || ''}
             onChange={(e) => {
@@ -226,9 +246,10 @@ export default function TestRailSelector({
               if (project) handleProjectSelect(project);
             }}
             className="w-full p-2 border rounded-md"
+            size={projectSearchTerm ? Math.min(filteredProjects.length + 1, 8) : 1}
           >
             <option value="">Choose a project...</option>
-            {projects.map(project => (
+            {filteredProjects.map(project => (
               <option key={project.id} value={project.id}>
                 {project.name}
               </option>

@@ -3,6 +3,8 @@ import path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { logger } from '../utils/logger.js';
+import propertiesParser from './propertiesParserService.js';
+import { domAnalyzerService } from './domAnalyzerService.js';
 
 const execAsync = promisify(exec);
 
@@ -11,6 +13,7 @@ export class JavaSeleniumService {
     // Cache directory for indexed repositories
     this.cacheDir = path.join(process.env.HOME, '.qa-copilot', 'cache');
     this.reposDir = path.join(process.env.HOME, '.qa-copilot', 'repos');
+    this.propertiesData = new Map();
     this.patterns = new Map(); // Store learned patterns per repository
   }
 
@@ -19,6 +22,9 @@ export class JavaSeleniumService {
    */
   async validateRepository(repoPath) {
     try {
+      // Trim any whitespace from path
+      repoPath = repoPath.trim();
+      
       // Check if directory exists
       const stats = await fs.stat(repoPath);
       if (!stats.isDirectory()) {
@@ -252,6 +258,94 @@ export class JavaSeleniumService {
   }
 
   /**
+   * Generate Selenium test with properties and DOM enhancements
+   */
+  async generateSeleniumTestWithEnhancements(manualTest, repoPath, testDirectory, propertiesData, domElements) {
+    // Use the existing generation as base
+    const baseTest = await this.generateSeleniumTest(manualTest, repoPath, testDirectory);
+    
+    // If we have DOM elements, enhance the test with real locators
+    if (domElements && domElements.length > 0) {
+      logger.info('Enhancing test with DOM element locators');
+      
+      // Map test steps to DOM elements
+      const enhancedSteps = manualTest.steps.map(step => {
+        const elementInStep = this.findElementInStep(step, domElements);
+        if (elementInStep) {
+          // Generate robust locator for this element
+          const locatorData = propertiesParser.generateNewElementLocator(
+            elementInStep.type,
+            elementInStep.text || elementInStep.label,
+            elementInStep
+          );
+          
+          // Add the locator method to test
+          const locatorMethod = propertiesParser.generateCodeForNewElement(
+            elementInStep.type,
+            elementInStep.text || elementInStep.label,
+            elementInStep
+          );
+          
+          return {
+            ...step,
+            enhancedLocator: locatorData,
+            locatorMethod
+          };
+        }
+        return step;
+      });
+      
+      // Inject enhanced locator methods into test code
+      let enhancedCode = baseTest.code;
+      
+      // Add locator methods before the closing brace
+      const locatorMethods = enhancedSteps
+        .filter(s => s.locatorMethod)
+        .map(s => s.locatorMethod)
+        .join('\n');
+      
+      if (locatorMethods) {
+        // Insert before the navigation helper methods
+        enhancedCode = enhancedCode.replace(
+          '    // --- Navigation Helper Methods ---',
+          `    // --- Enhanced Element Locator Methods ---\n${locatorMethods}\n\n    // --- Navigation Helper Methods ---`
+        );
+      }
+      
+      baseTest.code = enhancedCode;
+    }
+    
+    return baseTest;
+  }
+
+  /**
+   * Find DOM element that matches a test step
+   */
+  findElementInStep(step, domElements) {
+    const stepText = (step.action + ' ' + step.expectedResult).toLowerCase();
+    
+    // Look for element mentions in the step
+    for (const element of domElements) {
+      const elementText = (element.text || element.label || '').toLowerCase();
+      if (elementText && stepText.includes(elementText)) {
+        return element;
+      }
+      
+      // Check if step mentions element type
+      if (stepText.includes('button') && element.type === 'button') {
+        if (stepText.includes('restart') && elementText.includes('restart')) {
+          return element;
+        }
+        if (stepText.includes('play') && elementText.includes('play')) {
+          return element;
+        }
+      }
+    }
+    
+    return null;
+  }
+
+  /**
    * Extract class name from Java file content
    */
   extractClassName(content) {
@@ -294,6 +388,10 @@ export class JavaSeleniumService {
    * Learn patterns from test files in a directory
    */
   async learnPatterns(repoPath, testDirectory, forceReindex = false) {
+    // Trim any whitespace from paths
+    repoPath = repoPath.trim();
+    testDirectory = testDirectory ? testDirectory.trim() : '';
+    
     const index = await this.indexRepository(repoPath, forceReindex);
     const patterns = {
       imports: new Set(),
@@ -311,7 +409,7 @@ export class JavaSeleniumService {
 
     // Filter test files from the selected directory
     // Normalize paths for comparison
-    const normalizedTestDir = testDirectory.replace(repoPath, '').replace(/^\/+/, '');
+    const normalizedTestDir = testDirectory.replace(repoPath, '').replace(/^\/+/, '').trim();
     logger.info(`Filtering tests in directory: "${normalizedTestDir}" from ${index.testFiles.length} total test files`);
     
     const relevantTests = index.testFiles.filter(file => {
@@ -384,9 +482,101 @@ export class JavaSeleniumService {
   }
 
   /**
+   * Learn from properties files
+   */
+  async learnFromProperties(propertiesPath, primaryPage = null) {
+    try {
+      logger.info(`Learning from properties in: ${propertiesPath}`);
+      const propertiesData = await propertiesParser.parsePropertiesDirectory(propertiesPath, primaryPage);
+      
+      // Store properties data for later use
+      this.propertiesData.set(propertiesPath, propertiesData);
+      
+      logger.info(`Learned ${Object.keys(propertiesData.pages).length} page objects with ${propertiesData.navigationMethods.length} navigation patterns`);
+      
+      return propertiesData;
+    } catch (error) {
+      logger.error('Error learning from properties:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Generate enhanced Selenium test with DOM analysis and properties
+   */
+  async generateEnhancedSeleniumTest(manualTest, options = {}) {
+    const {
+      repoPath = '',
+      testDirectory = '',
+      propertiesPath = null,
+      url = null,
+      primaryPage = null
+    } = options;
+
+    logger.info('Generating enhanced Selenium test with DOM and properties integration');
+    
+    // Step 1: Learn from properties if provided
+    let propertiesData = null;
+    if (propertiesPath) {
+      logger.info(`Learning from properties at: ${propertiesPath}`);
+      propertiesData = await this.learnFromProperties(propertiesPath, primaryPage);
+      
+      if (propertiesData) {
+        // Learn locator patterns for generating new elements
+        propertiesParser.learnLocatorPatterns(propertiesData);
+      }
+    }
+    
+    // Step 2: Analyze DOM if URL provided
+    let domElements = null;
+    if (url) {
+      logger.info(`Analyzing DOM at URL: ${url}`);
+      try {
+        await domAnalyzerService.initialize();
+        const domData = await domAnalyzerService.analyzePage(url);
+        domElements = domData.elements;
+        logger.info(`Found ${domElements.length} elements in DOM`);
+        
+        // Extract unique elements that might be new (not in properties)
+        if (propertiesData) {
+          const existingElements = new Set();
+          Object.values(propertiesData.pages).forEach(page => {
+            Object.keys(page).forEach(key => existingElements.add(key.toLowerCase()));
+          });
+          
+          // Filter to new elements
+          const newElements = domElements.filter(el => {
+            const elementKey = propertiesParser.generateElementKey(el.type, el.text || el.label || '');
+            return !existingElements.has(elementKey.toLowerCase());
+          });
+          
+          logger.info(`Found ${newElements.length} new elements not in properties`);
+        }
+      } catch (error) {
+        logger.error('DOM analysis failed:', error);
+      } finally {
+        await domAnalyzerService.cleanup();
+      }
+    }
+    
+    // Step 3: Generate test with enhanced element locators
+    return this.generateSeleniumTestWithEnhancements(
+      manualTest,
+      repoPath,
+      testDirectory,
+      propertiesData,
+      domElements
+    );
+  }
+
+  /**
    * Generate Selenium test based on manual test and learned patterns
    */
-  async generateSeleniumTest(manualTest, repoPath, testDirectory) {
+  async generateSeleniumTest(manualTest, repoPath, testDirectory, propertiesPath = null) {
+    // Trim any whitespace from paths
+    repoPath = repoPath ? repoPath.trim() : '';
+    testDirectory = testDirectory ? testDirectory.trim() : '';
+    
     const patterns = this.patterns.get(repoPath) || 
                     await this.learnPatterns(repoPath, testDirectory);
 
@@ -396,89 +586,173 @@ export class JavaSeleniumService {
     // Build test class
     let testCode = '';
 
-    // Package declaration
-    if (packageName) {
-      testCode += `package ${packageName};\n\n`;
+    // Package declaration - use framework package structure
+    const frameworkPackage = packageName || 'com.viacom.unified.tests.container';
+    testCode += `package ${frameworkPackage};\n\n`;
+
+    // Imports - use comprehensive framework imports like the example
+    testCode += this.getComprehensiveFrameworkImports().join('\n') + '\n\n';
+
+    // Class declaration - extend BaseTest
+    testCode += `public class ${className} extends BaseTest {\n\n`;
+    
+    // Add member variables like the example
+    testCode += '    private final TestParams testParams;\n';
+    testCode += '    private SoftAssert softAssert;\n\n';
+    
+    // Factory method with correct signature
+    testCode += '    @Factory(dataProvider = "defaultDataProvider", dataProviderClass = BaseTest.class)\n';
+    testCode += `    public static Object[] createTest(TestParams testParams) {\n`;
+    testCode += `        return new Object[]{new ${className}(testParams)};\n`;
+    testCode += '    }\n\n';
+    
+    // Constructor
+    testCode += `    public ${className}(TestParams testParams) {\n`;
+    testCode += '        this.testParams = testParams;\n';
+    testCode += '    }\n\n';
+    
+    // BeforeMethod setup with navigation from preconditions
+    testCode += '    @BeforeMethod(alwaysRun = true)\n';
+    testCode += '    public void beforeMethod() {\n';
+    testCode += '        super.setup();\n';
+    testCode += '        softAssert = new SoftAssert();\n';
+    testCode += '        Logger.logMessage("Starting test with parameters: Tier=" + testParams.getTier());\n';
+    testCode += '        \n';
+    testCode += '        // Preconditions from test case:\n';
+    if (manualTest.preconditions) {
+      // Add preconditions as comments for clarity
+      const preconditionLines = manualTest.preconditions.split('\n');
+      preconditionLines.forEach(line => {
+        if (line.trim()) {
+          testCode += `        // ${line.trim()}\n`;
+        }
+      });
+      testCode += '        \n';
     }
-
-    // Imports (use common imports from patterns)
-    const commonImports = this.getCommonImports(patterns);
-    testCode += commonImports.join('\n') + '\n\n';
-
-    // Class declaration
-    testCode += `public class ${className} {\n`;
-    testCode += '    private static final String BASE_URL = "https://your-app-url.com";\n';
-    testCode += '    private WebDriver driver;\n\n';
-
-    // Setup method
-    testCode += '    @BeforeEach\n';
-    testCode += '    public void setUp() {\n';
-    testCode += '        // Initialize WebDriver\n';
-    testCode += '        System.setProperty("webdriver.chrome.driver", "path/to/chromedriver");\n';
-    testCode += '        driver = new ChromeDriver();\n';
-    testCode += '        driver.manage().window().maximize();\n';
-    testCode += '        driver.manage().timeouts().implicitlyWait(Duration.ofSeconds(10));\n';
+    testCode += this.generateNavigationFromPreconditions(manualTest);
+    testCode += '    }\n\n';
+    
+    // Add AfterMethod
+    testCode += '    @AfterMethod(alwaysRun = true)\n';
+    testCode += '    public void afterMethod() {\n';
+    testCode += '        super.teardown();\n';
+    testCode += '        Logger.logMessage("Test cleanup completed");\n';
     testCode += '    }\n\n';
 
-    // Test method
-    testCode += '    @Test\n';
+    // Test method with proper annotations matching the example
+    testCode += '    @Test(groups = {"happy-path", "container", "playback-controls"})\n';
+    testCode += `    @Description("${manualTest.objective || manualTest.title}")\n`;
+    testCode += '    @Platforms({Platform.WEB, Platform.MOBILE_WEB})\n';
+    testCode += '    @AppBrand({AppBrandType.PARAMOUNT_PLUS})\n';
+    testCode += '    @Locales({Locale.US})\n';
     testCode += `    public void ${this.generateMethodName(manualTest.title)}() {\n`;
-    testCode += `        // ${manualTest.objective}\n\n`;
+    testCode += '        \n';
+    testCode += `        Logger.logMessage("Starting test: ${manualTest.title}");\n`;
+    testCode += '        \n';
 
-    // Convert manual steps to Selenium code
+    // Convert manual steps to framework-specific code
     for (const step of manualTest.steps) {
       testCode += `        // Step: ${step.action}\n`;
-      testCode += this.convertStepToSelenium(step) + '\n';
-      testCode += `        // Expected: ${step.expected}\n\n`;
+      testCode += this.convertStepToFrameworkCode(step) + '\n';
+      testCode += `        // Expected: ${step.expectedResult || step.expected || 'Verify action completes successfully'}\n\n`;
     }
 
-    testCode += '    }\n\n';
-
-    // Teardown method
-    testCode += '    @AfterEach\n';
-    testCode += '    public void tearDown() {\n';
-    testCode += '        if (driver != null) {\n';
-    testCode += '            driver.quit();\n';
-    testCode += '        }\n';
+    testCode += '        \n';
+    testCode += '        Logger.logMessage("Test execution finished. Asserting all soft assertions.");\n';
+    testCode += '        softAssert.assertAll();\n';
     testCode += '    }\n';
-    testCode += '\n';
+    testCode += '    \n';
+    testCode += '    // --- Element Locator Helper Methods ---\n';
+    testCode += '    \n';
+    
+    // Add smart locator methods for common elements
+    testCode += this.generateSmartLocatorMethod('resumeButton', 'Resume');
+    testCode += this.generateSmartLocatorMethod('restartButton', 'Restart');
+    testCode += this.generateSmartLocatorMethod('loadingSpinner', 'Loading');
+    
+    // Add the generic fallback finder method
     testCode += '    /**\n';
-    testCode += '     * Verifies screen reader compatibility by checking ARIA attributes.\n';
-    testCode += '     * Real screen reader testing requires tools like JAWS, NVDA, or axe-selenium.\n';
-    testCode += '     * @param expectedText The text that should be announced\n';
-    testCode += '     * @param expectedRole The ARIA role (e.g., "button")\n';
-    testCode += '     * @param position Optional position in set (e.g., 3 for "3 of 4")\n';
-    testCode += '     * @param total Optional total in set (e.g., 4 for "3 of 4")\n';
+    testCode += '     * Finds an element using a prioritized list of locators, providing a fallback mechanism.\n';
+    testCode += '     * @param elementName A human-readable name for the element for logging purposes.\n';
+    testCode += '     * @param locators    A list of By objects representing the location strategies in order of priority.\n';
+    testCode += '     * @return The located WebElement.\n';
+    testCode += '     * @throws NoSuchElementException if the element cannot be found using any of the provided locators.\n';
     testCode += '     */\n';
-    testCode += '    private void verifyScreenReaderCompatibility(String expectedText, String expectedRole, Integer position, Integer total) {\n';
-    testCode += '        WebElement focused = driver.switchTo().activeElement();\n';
-    testCode += '        \n';
-    testCode += '        // Get ARIA attributes\n';
-    testCode += '        String ariaLabel = focused.getAttribute("aria-label");\n';
-    testCode += '        String text = ariaLabel != null ? ariaLabel : focused.getText();\n';
-    testCode += '        String role = focused.getAttribute("role");\n';
-    testCode += '        String ariaPosinset = focused.getAttribute("aria-posinset");\n';
-    testCode += '        String ariaSetsize = focused.getAttribute("aria-setsize");\n';
-    testCode += '        \n';
-    testCode += '        // Verify text and role\n';
-    testCode += '        assertTrue(text.contains(expectedText), \n';
-    testCode += '            "Expected text \\"" + expectedText + "\\" but got \\"" + text + "\\"");\n';
-    testCode += '        assertEquals(expectedRole, role, "ARIA role mismatch");\n';
-    testCode += '        \n';
-    testCode += '        // Verify position if provided\n';
-    testCode += '        if (position != null && total != null) {\n';
-    testCode += '            assertEquals(String.valueOf(position), ariaPosinset, \n';
-    testCode += '                "ARIA position mismatch (expected " + position + " of " + total + ")");\n';
-    testCode += '            assertEquals(String.valueOf(total), ariaSetsize, \n';
-    testCode += '                "ARIA set size mismatch");\n';
+    testCode += '    private WebElement findElementWithFallbacks(String elementName, List<By> locators) {\n';
+    testCode += '        for (By locator : locators) {\n';
+    testCode += '            try {\n';
+    testCode += '                WebElement element = driver.findElement(locator);\n';
+    testCode += '                if (element.isDisplayed()) {\n';
+    testCode += '                    Logger.logMessage("Found element \'" + elementName + "\' using: " + locator);\n';
+    testCode += '                    return element;\n';
+    testCode += '                }\n';
+    testCode += '            } catch (NoSuchElementException e) {\n';
+    testCode += '                // Suppress exception and try the next locator\n';
+    testCode += '            }\n';
     testCode += '        }\n';
-    testCode += '        \n';
-    testCode += '        // Log what screen reader would announce\n';
-    testCode += '        String announcement = text + ", " + role;\n';
-    testCode += '        if (ariaPosinset != null && ariaSetsize != null) {\n';
-    testCode += '            announcement += ", " + ariaPosinset + " of " + ariaSetsize;\n';
+    testCode += '        Logger.logError("Could not find element \'" + elementName + "\' with any of the provided locators.");\n';
+    testCode += '        throw new NoSuchElementException("Could not find element: " + elementName);\n';
+    testCode += '    }\n\n';
+    
+    // Add navigation helper methods
+    testCode += '    // --- Navigation Helper Methods ---\n\n';
+    testCode += '    /**\n';
+    testCode += '     * Navigate to the specific content/property details page\n';
+    testCode += '     * @param contentTitle The title of the content to navigate to\n';
+    testCode += '     */\n';
+    testCode += '    private void navigateToPropertyDetailsPage(String contentTitle) {\n';
+    testCode += '        Logger.logMessage("Navigating to property details page for: " + contentTitle);\n';
+    testCode += '        // Use the home screen to search for content\n';
+    testCode += '        homeScreen().searchForContent(contentTitle);\n';
+    testCode += '        searchResultsScreen().selectFirstResult();\n';
+    testCode += '        // Wait for property details page to load\n';
+    testCode += '        WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(10));\n';
+    testCode += '        wait.until(ExpectedConditions.presenceOfElementLocated(By.cssSelector("[data-testid=\'property-details-container\']")));\n';
+    testCode += '    }\n\n';
+    
+    testCode += '    /**\n';
+    testCode += '     * Navigate to a specific episode of a series\n';
+    testCode += '     * @param seriesTitle The title of the series\n';
+    testCode += '     * @param seasonNumber The season number\n';
+    testCode += '     * @param episodeNumber The episode number\n';
+    testCode += '     */\n';
+    testCode += '    private void navigateToEpisode(String seriesTitle, int seasonNumber, int episodeNumber) {\n';
+    testCode += '        Logger.logMessage(String.format("Navigating to %s - S%02dE%02d", seriesTitle, seasonNumber, episodeNumber));\n';
+    testCode += '        navigateToPropertyDetailsPage(seriesTitle);\n';
+    testCode += '        // Select season if needed\n';
+    testCode += '        if (seasonNumber > 1) {\n';
+    testCode += '            propertyDetailsScreen().selectSeason(seasonNumber);\n';
     testCode += '        }\n';
-    testCode += '        System.out.println("Screen reader would announce: \\"" + announcement + "\\"");\n';
+    testCode += '        // Select episode\n';
+    testCode += '        propertyDetailsScreen().selectEpisode(episodeNumber);\n';
+    testCode += '    }\n\n';
+    
+    testCode += '    /**\n';
+    testCode += '     * Helper method to get login screen page object\n';
+    testCode += '     */\n';
+    testCode += '    private LoginScreen loginScreen() {\n';
+    testCode += '        return new LoginScreen(driver);\n';
+    testCode += '    }\n\n';
+    
+    testCode += '    /**\n';
+    testCode += '     * Helper method to get home screen page object\n';
+    testCode += '     */\n';
+    testCode += '    private HomeScreen homeScreen() {\n';
+    testCode += '        return new HomeScreen(driver);\n';
+    testCode += '    }\n\n';
+    
+    testCode += '    /**\n';
+    testCode += '     * Helper method to get search results screen page object\n';
+    testCode += '     */\n';
+    testCode += '    private SearchResultsScreen searchResultsScreen() {\n';
+    testCode += '        return new SearchResultsScreen(driver);\n';
+    testCode += '    }\n\n';
+    
+    testCode += '    /**\n';
+    testCode += '     * Helper method to get property details screen page object\n';
+    testCode += '     */\n';
+    testCode += '    private PropertyDetailsScreen propertyDetailsScreen() {\n';
+    testCode += '        return new PropertyDetailsScreen(driver);\n';
     testCode += '    }\n';
 
     testCode += '}\n';
@@ -489,6 +763,96 @@ export class JavaSeleniumService {
       packageName,
       fileName: `${className}.java`
     };
+  }
+
+  /**
+   * Generate navigation code from preconditions
+   */
+  generateNavigationFromPreconditions(manualTest) {
+    let navigationCode = '';
+    
+    // Always start with navigating to the application URL
+    navigationCode += '        // Navigate to the application\n';
+    navigationCode += '        driver.get(testParams.getApplicationUrl());\n';
+    navigationCode += '        \n';
+    
+    if (!manualTest.preconditions) {
+      navigationCode += '        // No specific preconditions - starting from home page\n';
+      navigationCode += '        Logger.logMessage("Starting test from home page");\n';
+      navigationCode += '        homeScreen().waitForPageLoad();\n';
+      return navigationCode;
+    }
+    
+    const preconditions = manualTest.preconditions.toLowerCase();
+    
+    // Handle login preconditions
+    if (preconditions.includes('logged in') || preconditions.includes('user is')) {
+      navigationCode += '        // Ensure user is logged in with appropriate tier\n';
+      navigationCode += '        if (!loginScreen().isUserLoggedIn()) {\n';
+      navigationCode += '            loginScreen().loginWithTier(testParams.getTier());\n';
+      navigationCode += '        }\n';
+      navigationCode += '        Logger.logMessage("User authenticated with tier: " + testParams.getTier());\n';
+      navigationCode += '        \n';
+    }
+    
+    // Extract content/episode information from preconditions
+    if (preconditions.includes('property details') || preconditions.includes('details page')) {
+      // Try to extract series/movie name
+      const contentMatch = preconditions.match(/(?:for|of|page for)\s+['"]?([^'"]+?)['"]?(?:\s*-|$|\.|,)/);
+      
+      if (contentMatch) {
+        const contentTitle = contentMatch[1].trim();
+        // Check if it's an episode
+        const episodeMatch = contentTitle.match(/(.+?)\s*-\s*S(\d+)E(\d+)/);
+        
+        if (episodeMatch) {
+          const seriesTitle = episodeMatch[1].trim();
+          const season = parseInt(episodeMatch[2]);
+          const episode = parseInt(episodeMatch[3]);
+          
+          navigationCode += '        // Navigate to specific episode\n';
+          navigationCode += `        Logger.logMessage("Navigating to: ${seriesTitle} - Season ${season}, Episode ${episode}");\n`;
+          navigationCode += '        homeScreen().searchForContent("' + seriesTitle + '");\n';
+          navigationCode += '        searchResultsScreen().selectFirstResult();\n';
+          navigationCode += `        propertyDetailsScreen().selectSeason(${season});\n`;
+          navigationCode += `        propertyDetailsScreen().selectEpisode(${episode});\n`;
+        } else {
+          // Regular content navigation
+          navigationCode += '        // Navigate to content property details\n';
+          navigationCode += `        Logger.logMessage("Navigating to Property Details page for: ${contentTitle}");\n`;
+          navigationCode += '        homeScreen().searchForContent("' + contentTitle + '");\n';
+          navigationCode += '        searchResultsScreen().selectFirstResult();\n';
+        }
+      } else {
+        // Generic navigation when no specific content is mentioned
+        navigationCode += '        // Navigate to property details page using test data\n';
+        navigationCode += '        String contentTitle = testParams.getContentTitle();\n';
+        navigationCode += '        Logger.logMessage("Navigating to Property Details page for: " + contentTitle);\n';
+        navigationCode += '        homeScreen().searchForContent(contentTitle);\n';
+        navigationCode += '        searchResultsScreen().selectFirstResult();\n';
+      }
+      
+      // Wait for page to load
+      navigationCode += '        \n';
+      navigationCode += '        // Verify navigation completed successfully\n';
+      navigationCode += '        WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(10));\n';
+      navigationCode += '        wait.until(ExpectedConditions.presenceOfElementLocated(By.cssSelector("[data-testid=\'property-details-container\']")));\n';
+      navigationCode += '        Logger.logMessage("Property details page loaded successfully");\n';
+    } else if (preconditions.includes('home')) {
+      navigationCode += '        // Ensure we are on home screen\n';
+      navigationCode += '        homeScreen().waitForPageLoad();\n';
+      navigationCode += '        Logger.logMessage("Home screen loaded successfully");\n';
+    }
+    
+    // Handle watched/progress content preconditions
+    if (preconditions.includes('resume point') || preconditions.includes('watched')) {
+      navigationCode += '        \n';
+      navigationCode += '        // Precondition: Content should have existing watch progress\n';
+      navigationCode += '        // This is typically set up via API or by playing content briefly in a setup method\n';
+      navigationCode += '        Logger.logMessage("Test assumes content has existing watch progress/resume point");\n';
+    }
+    
+    return navigationCode;
   }
 
   /**
@@ -747,36 +1111,308 @@ export class JavaSeleniumService {
   }
 
   /**
-   * Get common imports based on patterns
+   * Get comprehensive framework imports matching the example
    */
-  getCommonImports(patterns) {
-    const baseImports = [
-      'import org.junit.jupiter.api.Test;',
-      'import org.junit.jupiter.api.BeforeEach;',
-      'import org.junit.jupiter.api.AfterEach;',
-      'import org.openqa.selenium.WebDriver;',
-      'import org.openqa.selenium.WebElement;',
-      'import org.openqa.selenium.chrome.ChromeDriver;',
+  getComprehensiveFrameworkImports() {
+    return [
+      // Framework annotations
+      'import com.viacom.unified.framework.annotations.AppBrand;',
+      'import com.viacom.unified.framework.annotations.Locales;',
+      'import com.viacom.unified.framework.annotations.Platforms;',
+      // Framework core
+      'import com.viacom.unified.framework.core.BaseTest;',
+      'import com.viacom.unified.framework.core.TestParams;',
+      // Framework enums
+      'import com.viacom.unified.framework.enums.AppBrandType;',
+      'import com.viacom.unified.framework.enums.Locale;',
+      'import com.viacom.unified.framework.enums.Platform;',
+      // Framework utils
+      'import com.viacom.unified.framework.utils.Logger;',
+      // Page objects
+      'import com.viacom.unified.pageobjects.VideoPlayer;',
+      // Selenium imports
       'import org.openqa.selenium.By;',
       'import org.openqa.selenium.Keys;',
-      'import org.openqa.selenium.JavascriptExecutor;',
+      'import org.openqa.selenium.NoSuchElementException;',
+      'import org.openqa.selenium.WebElement;',
       'import org.openqa.selenium.interactions.Actions;',
-      'import org.openqa.selenium.support.ui.WebDriverWait;',
       'import org.openqa.selenium.support.ui.ExpectedConditions;',
+      'import org.openqa.selenium.support.ui.WebDriverWait;',
+      // TestNG
+      'import org.testng.annotations.BeforeMethod;',
+      'import org.testng.annotations.Description;',
+      'import org.testng.annotations.Factory;',
+      'import org.testng.annotations.Test;',
+      'import org.testng.asserts.SoftAssert;',
+      // Java
       'import java.time.Duration;',
-      'import static org.junit.jupiter.api.Assertions.*;'
+      'import java.util.Arrays;',
+      'import java.util.List;'
     ];
+  }
+  
+  /**
+   * Get framework-specific imports (legacy)
+   */
+  getFrameworkImports(patterns) {
+    // Redirect to comprehensive imports
+    return this.getComprehensiveFrameworkImports();
 
-    // Add common imports from patterns
-    const patternImports = Array.from(patterns.imports)
-      .filter(imp => 
-        imp.includes('selenium') || 
-        imp.includes('junit') || 
-        imp.includes('testng')
-      )
-      .slice(0, 5); // Limit to avoid too many imports
+    // Add any additional imports from patterns if they match the framework
+    if (patterns && patterns.imports) {
+      const additionalImports = Array.from(patterns.imports)
+        .filter(imp => imp.includes('com.viacom.unified'))
+        .slice(0, 5);
+      frameworkImports.push(...additionalImports);
+    }
 
-    return [...new Set([...baseImports, ...patternImports])];
+    return [...new Set(frameworkImports)];
+  }
+
+  /**
+   * Generate smart locator method matching the example format
+   */
+  generateSmartLocatorMethod(elementId, elementText) {
+    let method = `    private WebElement findElement_${elementId}() {\n`;
+    method += '        List<By> locators = Arrays.asList(\n';
+    method += `                By.cssSelector("[data-testid='${elementId.replace('Button', '-button')}']"),\n`;
+    method += `                By.id("${elementId}"),\n`;
+    method += `                By.xpath("//button[contains(text(), '${elementText}')]"),\n`;
+    method += `                By.cssSelector("[aria-label*='${elementText}']"),\n`;
+    method += `                By.xpath("//*[contains(@class, 'button') and contains(text(), '${elementText}')]")\n`;
+    method += '        );\n';
+    method += `        return findElementWithFallbacks("${elementText} Button", locators);\n`;
+    method += '    }\n';
+    method += '    \n';
+    return method;
+  }
+  
+  /**
+   * Generate smart element locator with multiple strategies
+   */
+  generateSmartLocator(elementName, elementType = 'button') {
+    const strategies = [];
+    
+    // Strategy 1: By data-testid (most stable)
+    strategies.push(`By.cssSelector("[data-testid='${elementName}']")`);
+    
+    // Strategy 2: By ID (if available)
+    strategies.push(`By.id("${elementName}")`);
+    
+    // Strategy 3: By partial text match (for buttons/links)
+    if (elementType === 'button' || elementType === 'link') {
+      strategies.push(`By.xpath("//button[contains(text(), '${elementName}')]")`);
+      strategies.push(`By.xpath("//a[contains(text(), '${elementName}')]")`);
+    }
+    
+    // Strategy 4: By aria-label
+    strategies.push(`By.cssSelector("[aria-label*='${elementName}']")`);
+    
+    // Strategy 5: By class and text combination
+    strategies.push(`By.xpath("//*[contains(@class, '${elementType}') and contains(text(), '${elementName}')]")`);
+    
+    // Generate the smart finder method
+    let code = `    private WebElement findElement_${elementName.replace(/\s+/g, '_')}() {\n`;
+    code += `        List<By> locators = Arrays.asList(\n`;
+    strategies.forEach((strategy, index) => {
+      code += `            ${strategy}${index < strategies.length - 1 ? ',' : ''}\n`;
+    });
+    code += `        );\n`;
+    code += `        \n`;
+    code += `        for (By locator : locators) {\n`;
+    code += `            try {\n`;
+    code += `                WebElement element = driver.findElement(locator);\n`;
+    code += `                if (element != null && element.isDisplayed()) {\n`;
+    code += `                    Logger.logMessage("Found element using: " + locator.toString());\n`;
+    code += `                    return element;\n`;
+    code += `                }\n`;
+    code += `            } catch (NoSuchElementException e) {\n`;
+    code += `                // Try next locator\n`;
+    code += `            }\n`;
+    code += `        }\n`;
+    code += `        throw new NoSuchElementException("Could not find element: ${elementName}");\n`;
+    code += `    }\n`;
+    
+    return code;
+  }
+
+  /**
+   * Convert step to framework-specific code
+   */
+  convertStepToFrameworkCode(step) {
+    const action = step.action.toLowerCase();
+    let code = '';
+    
+    // Navigation actions using framework methods
+    if (action.includes('navigate') || action.includes('go to') || action.includes('open')) {
+      if (action.includes('property details') || action.includes('container')) {
+        code = '        containerScreen().waitForScreenToLoad();';
+      } else if (action.includes('home')) {
+        code = '        launchAppAndNavigateToHomeScreen();';
+      } else {
+        code = '        // Navigate action: ' + step.action;
+      }
+    }
+    // Remote control navigation (framework-specific)
+    else if (action.includes('arrow') || action.includes('remote')) {
+      if (action.includes('right')) {
+        code = '        containerScreen().scrollRight();';
+      } else if (action.includes('left')) {
+        code = '        containerScreen().scrollLeft();';
+      } else if (action.includes('down')) {
+        code = '        containerScreen().scrollDown();';
+      } else if (action.includes('up')) {
+        code = '        containerScreen().scrollUp();';
+      } else if (action.includes('ok') || action.includes('select')) {
+        code = '        containerScreen().selectFocusedElement();';
+      }
+    }
+    // Button actions - now with smart locators for new elements
+    else if (action.includes('button')) {
+      const buttonName = this.extractElementName(action);
+      
+      // Check if this is a known framework button
+      if (action.includes('restart')) {
+        code = '        containerScreen().selectRestartButton();';
+      } else if (action.includes('resume')) {
+        code = '        containerScreen().selectResumeButton();';
+      } else if (action.includes('play')) {
+        code = '        containerScreen().selectPlayButton();';
+      } else {
+        // For unknown buttons, use smart locator
+        code = `        WebElement ${buttonName.toLowerCase()}Button = findElement_${buttonName.replace(/\s+/g, '_')}();\n`;
+        code += `        ${buttonName.toLowerCase()}Button.click();`;
+      }
+    }
+    // Verification actions
+    else if (action.includes('verify') || action.includes('check') || action.includes('observe')) {
+      if (action.includes('focus')) {
+        code = '        softAssert.assertTrue(containerScreen().isFocusOnExpectedElement(), "Focus verification failed");';
+      } else if (action.includes('display') || action.includes('visible')) {
+        code = '        softAssert.assertTrue(containerScreen().isElementVisible(), "Element visibility check failed");';
+      } else if (action.includes('ad') || action.includes('preroll')) {
+        code = '        softAssert.assertTrue(videoPlayer().isAdPlaying(), "Ad playback verification failed");';
+      } else {
+        code = '        // Verification: ' + step.action;
+      }
+    }
+    // Wait actions
+    else if (action.includes('wait')) {
+      if (action.includes('ad')) {
+        code = '        videoPlayer().waitForAdToComplete();';
+      } else if (action.includes('load')) {
+        code = '        containerScreen().waitForScreenToLoad();';
+      } else {
+        code = '        WaitUtil.waitFor(TimeConstants.WAIT_MILLIS_3000);';
+      }
+    }
+    // Default fallback
+    else {
+      code = '        // Action: ' + step.action;
+    }
+    
+    return code;
+  }
+
+  /**
+   * Get common imports based on patterns (legacy support)
+   */
+  getCommonImports(patterns) {
+    // Redirect to framework imports for consistency
+    return this.getFrameworkImports(patterns);
+  }
+
+  /**
+   * Build automation prompt for Gemini AI
+   */
+  async buildAutomationPrompt(manualTest, repoPath, testDirectory, elementPatterns) {
+    // Get existing patterns if available
+    const patterns = this.patterns.get(repoPath) || 
+                    await this.learnPatterns(repoPath, testDirectory);
+    
+    const className = this.generateClassName(manualTest.title);
+    const packageName = this.extractPackageFromPath(testDirectory) || 'com.viacom.unified.tests.container';
+    
+    let prompt = `Generate a Java Selenium test class based on the following manual test case.
+
+PROJECT CONTEXT:
+================
+Package: ${packageName}
+Class Name: ${className}
+Framework: ${elementPatterns?.frameworks?.join(', ') || 'selenium'}
+${patterns?.imports?.length > 0 ? `Common Imports: ${patterns.imports.slice(0, 10).join('\n')}` : ''}
+
+MANUAL TEST CASE:
+=================
+Title: ${manualTest.title}
+Objective: ${manualTest.objective}
+Preconditions: ${manualTest.preconditions}
+Priority: ${manualTest.priority}
+
+TEST STEPS:
+${manualTest.steps.map((step, i) => `
+Step ${i + 1}:
+  Action: ${step.action}
+  Expected: ${step.expectedResult || step.expected || 'Verify action completes successfully'}
+`).join('')}
+
+Expected Result: ${manualTest.expectedResult}
+
+REQUIREMENTS:
+=============
+1. Extend BaseTest class and use Factory pattern with TestParams
+2. Include proper TestNG annotations (@Test, @Factory, @Description, etc.)
+3. Use framework-specific annotations (@Platforms, @AppBrand, @Locales)
+4. Implement multi-strategy element location with fallback mechanisms
+5. For EACH UI element, create a helper method that tries multiple locator strategies:
+   - Priority 1: data-testid attribute
+   - Priority 2: id attribute
+   - Priority 3: xpath with text content
+   - Priority 4: aria-label attribute
+   - Priority 5: class and text combination
+6. Use SoftAssert for multiple validations
+7. Include proper error handling and logging
+8. Generate methods like findElement_ButtonName() that implement the multi-strategy approach
+9. Use existing page object methods when available (containerScreen(), homeScreen(), etc.)
+
+ELEMENT LOCATION EXAMPLE:
+========================
+private WebElement findElement_resumeButton() {
+    List<By> locators = Arrays.asList(
+        By.cssSelector("[data-testid='resume-button']"),
+        By.id("resumeButton"),
+        By.xpath("//button[contains(text(), 'Resume')]"),
+        By.cssSelector("[aria-label*='Resume']"),
+        By.xpath("//*[contains(@class, 'button') and contains(text(), 'Resume')]")
+    );
+    
+    for (By locator : locators) {
+        try {
+            WebElement element = driver.findElement(locator);
+            if (element != null && element.isDisplayed()) {
+                Logger.logMessage("Found element using: " + locator.toString());
+                return element;
+            }
+        } catch (NoSuchElementException e) {
+            // Try next locator
+        }
+    }
+    throw new NoSuchElementException("Could not find element: Resume Button");
+}
+
+Generate the complete Java test class with all imports, annotations, and test methods.`;
+
+    if (elementPatterns && elementPatterns.smartLocatorStrategies?.length > 0) {
+      prompt += `
+
+SMART LOCATOR STRATEGIES FROM PROJECT:
+======================================
+${elementPatterns.smartLocatorStrategies.map(s => `${s.priority}. ${s.type}: ${s.example}`).join('\n')}
+
+Use these strategies in the order specified for element location.`;
+    }
+
+    return prompt;
   }
 
   /**

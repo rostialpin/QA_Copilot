@@ -221,6 +221,87 @@ class RealJiraService {
       throw error;
     }
   }
+
+  async getResolvedTickets(projectKey = null, maxResults = 100) {
+    try {
+      let jql;
+      if (projectKey) {
+        logger.info(`🔄 Fetching resolved tickets for project ${projectKey}`);
+        jql = `project = ${projectKey} AND status in (Resolved, Done, Closed, Complete) ORDER BY updated DESC`;
+      } else {
+        logger.info('🔄 Fetching resolved tickets across all projects');
+        jql = `status in (Resolved, Done, Closed, Complete) ORDER BY updated DESC`;
+      }
+      
+      const response = await this.client.post('/rest/api/2/search', {
+        jql,
+        maxResults,
+        fields: ['summary', 'description', 'status', 'priority', 'assignee', 'issuetype', 'resolved', 'resolution', 'customfield_10014', 'project']
+      });
+      
+      const issues = response.data.issues || [];
+      
+      // Transform issues to match our format
+      const transformedIssues = issues.map(issue => ({
+        key: issue.key,
+        summary: issue.fields.summary,
+        description: issue.fields.description || '',
+        type: issue.fields.issuetype?.name || 'Story',
+        status: issue.fields.status?.name || 'To Do',
+        priority: issue.fields.priority?.name || 'Medium',
+        assignee: issue.fields.assignee?.displayName || 'Unassigned',
+        acceptanceCriteria: issue.fields.customfield_10014 || '',
+        resolved: issue.fields.resolved || null,
+        resolution: issue.fields.resolution?.name || null,
+        project: issue.fields.project?.key || projectKey
+      }));
+      
+      logger.info(`✅ Found ${transformedIssues.length} resolved tickets${projectKey ? ` for project ${projectKey}` : ''}`);
+      return transformedIssues;
+    } catch (error) {
+      logger.error(`❌ Error fetching resolved tickets${projectKey ? ` for project ${projectKey}` : ''}:`, error.message);
+      throw error;
+    }
+  }
+
+  async getSpecificTicket(ticketKey) {
+    try {
+      logger.info(`🔄 Fetching specific ticket ${ticketKey}`);
+      
+      const response = await this.client.get(`/rest/api/2/issue/${ticketKey}`, {
+        params: {
+          fields: 'summary,description,status,priority,assignee,issuetype,resolved,resolution,customfield_10014,project,created,updated'
+        }
+      });
+      
+      const issue = response.data;
+      
+      const transformedIssue = {
+        key: issue.key,
+        summary: issue.fields.summary,
+        description: issue.fields.description || '',
+        type: issue.fields.issuetype?.name || 'Story',
+        status: issue.fields.status?.name || 'To Do',
+        priority: issue.fields.priority?.name || 'Medium',
+        assignee: issue.fields.assignee?.displayName || 'Unassigned',
+        acceptanceCriteria: issue.fields.customfield_10014 || '',
+        resolved: issue.fields.resolved || null,
+        resolution: issue.fields.resolution?.name || null,
+        project: issue.fields.project?.key || null,
+        created: issue.fields.created || null,
+        updated: issue.fields.updated || null
+      };
+      
+      logger.info(`✅ Successfully fetched ticket ${ticketKey}`);
+      return transformedIssue;
+    } catch (error) {
+      logger.error(`❌ Error fetching ticket ${ticketKey}:`, error.message);
+      if (error.response?.status === 404) {
+        throw new Error(`Ticket ${ticketKey} not found`);
+      }
+      throw error;
+    }
+  }
 }
 
 export const realJiraService = new RealJiraService();

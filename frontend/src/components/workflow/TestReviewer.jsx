@@ -11,8 +11,8 @@ export default function TestReviewer({ tests, onReview, reviewed, onSkipToAutoma
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (tests && tests.length > 0) {
-      // Immediately set tests without delay
+    if (tests && tests.length > 0 && editedTests.length === 0) {
+      // Only initialize if editedTests is empty to prevent overwriting during edits
       const formattedTests = tests.map(test => {
         if (!test.steps || test.steps.length === 0) {
           const steps = parseTestIntoSteps(test);
@@ -20,13 +20,17 @@ export default function TestReviewer({ tests, onReview, reviewed, onSkipToAutoma
         }
         return test;
       });
-      setEditedTests(reviewed.length > 0 ? reviewed : formattedTests);
+      
+      // Use reviewed if available, otherwise use formatted tests
+      const initialTests = reviewed && reviewed.length > 0 ? reviewed : formattedTests;
+      setEditedTests(initialTests);
+      
       // Auto-approve tests after a short delay for better UX
-      if (reviewed.length === 0) {
+      if (!reviewed || reviewed.length === 0) {
         setTimeout(() => onReview(formattedTests), 100);
       }
     }
-  }, [tests, reviewed, onReview]);
+  }, [tests, reviewed]); // Keep dependencies but add guard condition
 
   // Parse test description into structured steps
   const parseTestIntoSteps = (test) => {
@@ -108,8 +112,9 @@ export default function TestReviewer({ tests, onReview, reviewed, onSkipToAutoma
   };
 
   const handleSaveEdit = () => {
-    onReview(editedTests);
     setEditingId(null);
+    // Only call onReview after editing is complete
+    setTimeout(() => onReview(editedTests), 0);
   };
 
   const toggleExpanded = (testId) => {
@@ -128,12 +133,7 @@ export default function TestReviewer({ tests, onReview, reviewed, onSkipToAutoma
     onReview(updated);
   };
 
-  useEffect(() => {
-    // Auto-save reviews
-    if (editedTests.length > 0) {
-      onReview(editedTests);
-    }
-  }, [editedTests]);
+  // Removed duplicate auto-save that was causing infinite loop
 
   return (
     <div className="space-y-4">

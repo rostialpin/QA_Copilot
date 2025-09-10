@@ -1,158 +1,223 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { jiraApi } from '../services/jiraApi';
-import { cachedApi } from '../services/cacheService';
 import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
 
 export default function Dashboard() {
-  // Load saved board from localStorage
-  const savedBoard = localStorage.getItem('selectedJiraBoard');
-  const savedBoardData = savedBoard ? JSON.parse(savedBoard) : null;
+  // Load saved project from localStorage
+  const savedProject = localStorage.getItem('selectedJiraProject');
+  const savedProjectData = savedProject ? JSON.parse(savedProject) : null;
   
-  console.log('Loading Dashboard - Saved board data:', savedBoardData);
+  console.log('Loading Dashboard - Saved project data:', savedProjectData);
   
-  // Ensure IDs are strings for consistency
-  const [selectedBoard, setSelectedBoard] = useState(savedBoardData?.id ? String(savedBoardData.id) : null);
-  const [selectedBoardInfo, setSelectedBoardInfo] = useState(savedBoardData || null);
+  const [selectedProject, setSelectedProject] = useState(savedProjectData?.key || '');
+  const [selectedProjectInfo, setSelectedProjectInfo] = useState(savedProjectData || null);
+  const [projectSearchTerm, setProjectSearchTerm] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [expandedTickets, setExpandedTickets] = useState(new Set());
   const navigate = useNavigate();
 
-  // Fetch all boards once and search boards when needed
-  const { data: allBoards, isLoading: boardsLoading, error: boardsError, refetch: refetchBoards } = useQuery({
-    queryKey: ['allBoards'],
+  // Fetch all available projects
+  const { data: projects, isLoading: projectsLoading, error: projectsError, refetch: refetchProjects } = useQuery({
+    queryKey: ['allProjects'],
     queryFn: async () => {
-      const response = await fetch('http://localhost:3001/api/jira/boards');
+      const response = await fetch(`http://localhost:3001/api/jira/projects/search?query=`);
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
-      console.log('Fetched all boards:', data.length, 'boards');
-      return data;
+      console.log('Fetched all projects:', data);
+      return data || [];
     },
-    staleTime: 5 * 60 * 1000, // Consider data fresh for 5 minutes
-    refetchOnWindowFocus: false, // Prevent refetch on window focus
+    staleTime: 30 * 1000, // Reduced to 30 seconds for fresher data
+    refetchOnWindowFocus: true,
+    cacheTime: 60 * 1000, // Cache for only 1 minute
   });
 
-  // Fetch search results separately when there's a search term
-  const { data: searchResults } = useQuery({
-    queryKey: ['searchBoards', debouncedSearchTerm],
+  // Fetch demo tickets (includes ESWCTV-1124)
+  const { data: demoTickets, isLoading: demoLoading, refetch: refetchDemo } = useQuery({
+    queryKey: ['demoTickets'],
     queryFn: async () => {
-      if (!debouncedSearchTerm || debouncedSearchTerm.trim() === '') return null;
-      
-      const response = await fetch(`http://localhost:3001/api/jira/projects/search?query=${encodeURIComponent(debouncedSearchTerm)}`);
+      const response = await fetch('http://localhost:3001/api/jira/demo-tickets');
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
-      console.log('Search results for', debouncedSearchTerm, ':', data.length, 'boards');
-      // Backend already returns correct board IDs
-      return data;
+      console.log('Fetched demo tickets:', data);
+      return data.tickets || [];
     },
-    enabled: !!debouncedSearchTerm && debouncedSearchTerm.trim() !== '',
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
 
-  // Use search results when searching, otherwise use all boards
-  const boards = searchResults || allBoards;
-
-  const { data: sprint, isLoading: sprintLoading, error: sprintError, refetch: refetchSprint } = useQuery({
-    queryKey: ['currentSprint', selectedBoard],
+  // Fetch board for selected project
+  const { data: boardInfo, isLoading: boardLoading } = useQuery({
+    queryKey: ['projectBoard', selectedProject],
     queryFn: async () => {
-      if (!selectedBoard) return null;
-      // Fetch directly from API, bypassing cache
-      const response = await fetch(`http://localhost:3001/api/jira/current-sprint/${selectedBoard}`);
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const data = await response.json();
-      console.log(`Fetched sprint for board ${selectedBoard}:`, data.id, data.name);
-      return data;
-    },
-    enabled: !!selectedBoard,
-    staleTime: 5 * 60 * 1000, // Consider data fresh for 5 minutes
-  });
+      if (!selectedProject) return null;
+      
+      try {
+        // Try to get boards for the project
+        const response = await fetch(`http://localhost:3001/api/jira/boards?projectKey=${selectedProject}`);
+        if (!response.ok) {
+          console.log('Boards endpoint failed, using fallback');
+          return {
+            board: { 
+              id: selectedProject, 
+              name: `${selectedProject} Board`,
+              projectKey: selectedProject 
+            },
+            sprint: null
+          };
+        }
+        
+        const data = await response.json();
+        const boards = data.boards || data || [];
+        
+        // Find board for this project
+        const projectBoard = boards.find(b => 
+          b.location?.projectKey === selectedProject || 
+          b.projectKey === selectedProject ||
+          b.name?.includes(selectedProject)
+        ) || { 
+          id: selectedProject, 
+          name: `${selectedProject} Board`,
+          projectKey: selectedProject 
+        };
 
-  const { data: issues, isLoading: issuesLoading, error: issuesError, refetch: refetchIssues } = useQuery({
-    queryKey: ['sprintIssues', sprint?.id],
-    queryFn: async () => {
-      if (!sprint?.id) return [];
-      // Fetch directly from API, bypassing cache
-      const response = await fetch(`http://localhost:3001/api/jira/sprint/${sprint.id}/issues`);
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const data = await response.json();
-      console.log(`Fetched ${data.length} issues for sprint ${sprint.id}:`, data.map(i => i.key));
-      return data;
-    },
-    enabled: !!sprint?.id,
-    staleTime: 5 * 60 * 1000, // Consider data fresh for 5 minutes
-  });
+        // Try to get active sprint for the board
+        let sprint = null;
+        try {
+          const sprintResponse = await fetch(`http://localhost:3001/api/jira/current-sprint/${projectBoard.id}`);
+          if (sprintResponse.ok) {
+            sprint = await sprintResponse.json();
+            console.log('Found active sprint:', sprint);
+          }
+        } catch (err) {
+          console.log('No active sprint found');
+        }
 
-
-  // Save selected board to localStorage whenever it changes
-  const handleBoardSelect = (boardId) => {
-    // Convert to string for consistent comparison
-    const boardIdStr = String(boardId);
-    const board = boards?.find(b => String(b.id) === boardIdStr);
-    if (board) {
-      // Save board info to localStorage
-      const boardInfo = {
-        id: String(board.id),
-        name: board.name,
-        projectKey: board.location?.projectKey || board.projectKey,
-        projectName: board.location?.projectName || board.projectName
-      };
-      localStorage.setItem('selectedJiraBoard', JSON.stringify(boardInfo));
-      setSelectedBoardInfo(boardInfo);
-    }
-    setSelectedBoard(boardIdStr);
-  };
-
-  // Clear saved board
-  const clearSavedBoard = () => {
-    localStorage.removeItem('selectedJiraBoard');
-    setSelectedBoard(null);
-    setSelectedBoardInfo(null);
-  };
-
-  useEffect(() => {
-    console.log('Dashboard: boards =', boards?.length, 'debouncedSearchTerm =', debouncedSearchTerm);
-    // Only auto-select first board if there's no saved board and no current selection
-    if (boards && boards.length > 0 && !selectedBoard && !savedBoardData) {
-      console.log('Setting default board:', boards[0].id);
-      handleBoardSelect(boards[0].id);
-    }
-    // If we have a saved board but haven't selected it yet, restore it
-    else if (boards && savedBoardData && !selectedBoard) {
-      // Check if the saved board still exists in the list
-      const savedBoardExists = boards.find(b => String(b.id) === String(savedBoardData.id));
-      if (savedBoardExists) {
-        console.log('Restoring saved board:', savedBoardData.id);
-        setSelectedBoard(String(savedBoardData.id));
-      } else {
-        console.log('Saved board no longer exists, clearing');
-        clearSavedBoard();
+        return { board: projectBoard, sprint };
+      } catch (error) {
+        console.log('Error fetching board info:', error);
+        return {
+          board: { 
+            id: selectedProject, 
+            name: `${selectedProject} Board`,
+            projectKey: selectedProject 
+          },
+          sprint: null
+        };
       }
+    },
+    enabled: !!selectedProject,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Fetch issues for the project/sprint
+  const { data: projectIssues, isLoading: issuesLoading } = useQuery({
+    queryKey: ['projectIssues', selectedProject, boardInfo?.sprint?.id],
+    queryFn: async () => {
+      if (!selectedProject) return [];
+      
+      // If we have a sprint, get sprint issues
+      if (boardInfo?.sprint?.id) {
+        try {
+          const response = await fetch(`http://localhost:3001/api/jira/sprint/${boardInfo.sprint.id}/issues`);
+          if (response.ok) {
+            const data = await response.json();
+            console.log(`Fetched ${data.length} sprint issues`);
+            return data;
+          }
+        } catch (error) {
+          console.log('Sprint issues fetch error:', error);
+        }
+      }
+      
+      // Otherwise, get recent project issues
+      try {
+        const response = await fetch(`http://localhost:3001/api/jira/project/${selectedProject}/issues`);
+        if (response.ok) {
+          const data = await response.json();
+          console.log(`Fetched ${data.length} project issues`);
+          return data;
+        }
+      } catch (error) {
+        console.log('Project issues fetch error:', error);
+      }
+      
+      return [];
+    },
+    enabled: !!selectedProject,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Combine project issues with demo ticket (ESWCTV-1124) if needed
+  const allIssues = useMemo(() => {
+    const issues = projectIssues || [];
+    const demoTicket = demoTickets?.find(t => t.key === 'ESWCTV-1124');
+    
+    // If this is ESWCTV project and demo ticket not already present, add it
+    if (selectedProject?.includes('WCTV') && demoTicket && !issues.find(i => i.key === 'ESWCTV-1124')) {
+      return [demoTicket, ...issues];
     }
-  }, [boards]);
+    
+    return issues;
+  }, [projectIssues, demoTickets, selectedProject]);
 
-  // Debounce search term to improve performance
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      console.log('Setting debounced search term:', searchTerm);
-      setDebouncedSearchTerm(searchTerm);
-    }, 300);
+  // Filter tickets based on search
+  const filteredTickets = useMemo(() => {
+    if (!allIssues) return [];
+    if (!searchTerm.trim()) return allIssues;
+    
+    const searchLower = searchTerm.toLowerCase();
+    return allIssues.filter(ticket => 
+      ticket.key.toLowerCase().includes(searchLower) ||
+      ticket.summary.toLowerCase().includes(searchLower) ||
+      (ticket.description && ticket.description.toLowerCase().includes(searchLower)) ||
+      ticket.status.toLowerCase().includes(searchLower) ||
+      ticket.type.toLowerCase().includes(searchLower)
+    );
+  }, [allIssues, searchTerm]);
 
-    return () => clearTimeout(timer);
-  }, [searchTerm]);
+  // Handle project selection
+  const handleProjectSelect = (projectKey) => {
+    if (!projectKey) {
+      localStorage.removeItem('selectedJiraProject');
+      setSelectedProject('');
+      setSelectedProjectInfo(null);
+      return;
+    }
 
-  useEffect(() => {
-    console.log('Selected board:', selectedBoard);
-    console.log('Sprint data:', sprint);
-    console.log('Issues data:', issues);
-  }, [selectedBoard, sprint, issues]);
+    const project = projects?.find(p => 
+      p.projectKey === projectKey || 
+      p.key === projectKey
+    );
+    
+    if (project) {
+      const projectInfo = {
+        key: project.projectKey || project.key,
+        name: project.name,
+        id: project.id
+      };
+      localStorage.setItem('selectedJiraProject', JSON.stringify(projectInfo));
+      setSelectedProjectInfo(projectInfo);
+      setSelectedProject(projectInfo.key);
+    }
+  };
 
-  // No need for client-side filtering - server does the search
-  const filteredBoards = boards || [];
+  // Filter projects based on search
+  const filteredProjects = useMemo(() => {
+    if (!projects) return [];
+    if (!projectSearchTerm.trim()) return projects;
+    
+    const searchLower = projectSearchTerm.toLowerCase();
+    return projects.filter(project => 
+      (project.name && project.name.toLowerCase().includes(searchLower)) ||
+      (project.projectKey && project.projectKey.toLowerCase().includes(searchLower)) ||
+      (project.key && project.key.toLowerCase().includes(searchLower))
+    );
+  }, [projects, projectSearchTerm]);
 
-  if (boardsLoading) {
+  const isLoading = projectsLoading || (selectedProject && (boardLoading || issuesLoading || demoLoading));
+
+  if (isLoading) {
     return (
       <div className="flex justify-center items-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
@@ -160,312 +225,282 @@ export default function Dashboard() {
     );
   }
 
-  if (boardsError) {
-    return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-        <h3 className="text-red-800 font-medium">Error loading boards</h3>
-        <p className="text-red-600 text-sm mt-1">{boardsError.message}</p>
-        <p className="text-red-600 text-xs mt-2">Check the console for more details</p>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
       <div className="px-4 sm:px-0">
-        <div className="flex justify-between items-start">
+        <h2 className="text-2xl font-bold text-gray-900">Sprint Dashboard</h2>
+        <p className="mt-1 text-sm text-gray-600">
+          Select a JIRA project to view active board and tickets
+        </p>
+      </div>
+
+      {/* Project Selection */}
+      <div className="bg-white/95 backdrop-blur-sm shadow-xl rounded-xl p-4 card-hover border border-blue-100/50">
+        <div className="space-y-3">
+          {/* Project Search */}
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">Sprint Dashboard</h2>
-            <p className="mt-1 text-sm text-gray-600">
-              Monitor your current sprint and select tickets for test automation
-            </p>
-            {selectedBoardInfo && (
-              <p className="mt-1 text-sm text-indigo-600">
-                📌 Last used: <span className="font-medium">{selectedBoardInfo.name}</span>
-              </p>
-            )}
-            {boards && (
-              <p className="mt-1 text-xs text-gray-500">
-                {boards.length === 0 ? 'No boards available' : 
-                 debouncedSearchTerm ? 
-                   `Showing ${filteredBoards.length} of ${boards.length} board(s)` :
-                   `Found ${boards.length} board(s)`
-                }
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Search Projects
+            </label>
+            <input
+              type="text"
+              value={projectSearchTerm}
+              onChange={(e) => setProjectSearchTerm(e.target.value)}
+              placeholder="Type to search... (e.g., 'WCTV', 'ESW', 'BET')"
+              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
+            />
+            {projectSearchTerm && (
+              <p className="text-xs text-gray-500 mt-1">
+                Found {filteredProjects.length} projects matching "{projectSearchTerm}"
               </p>
             )}
           </div>
-          <div className="flex gap-2">
-            {selectedBoardInfo && (
-              <button
-                onClick={clearSavedBoard}
-                className="text-sm text-gray-500 hover:text-gray-700 bg-white px-2 py-1 rounded border border-gray-300 hover:border-gray-400"
-                title="Clear saved project"
-              >
-                Clear saved project
-              </button>
-            )}
-            <button
-              onClick={() => {
-                // Clear cache and reload boards
-                localStorage.removeItem('cache_jira_boards');
-                window.location.reload();
-              }}
-              className="text-sm text-red-500 hover:text-red-700 bg-white px-2 py-1 rounded border border-red-300 hover:border-red-400"
-              title="Clear cache and reload"
-            >
-              Clear Cache & Reload
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-white/95 backdrop-blur-sm shadow-xl rounded-xl p-4 space-y-4 card-hover border border-blue-100/50">
-        {/* Search Input */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Search Projects
-          </label>
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search by project name or key (e.g., 'WCTV')..."
-            className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
-          />
-          {searchTerm && (
-            <p className="text-xs text-gray-500 mt-1">
-              Searching for: "{searchTerm}" | Found: {filteredBoards.length} of {boards?.length || 0} boards
-            </p>
-          )}
-        </div>
-
-        {/* Board Select */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700">
-            Select Board
-          </label>
-          <select
-            value={selectedBoard || ''}
-            onChange={(e) => {
-              console.log('Board selected:', e.target.value);
-              handleBoardSelect(e.target.value);
-            }}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
-          >
-            <option value="">Select a board...</option>
-            {filteredBoards.length > 0 ? (
-              filteredBoards.map((board) => (
-                <option key={board.id} value={board.id}>
-                  {board.name} ({board.key || board.type})
-                </option>
-              ))
-            ) : (
-              <option disabled>No boards found</option>
-            )}
-          </select>
           
-          {/* Debug info - remove in production */}
-          {process.env.NODE_ENV === 'development' && (
-            <div className="mt-2 text-xs text-gray-500 border-t pt-2">
-              <div>Debug Info:</div>
-              <div>Total boards loaded: {boards ? boards.length : 0}</div>
-              <div>Filtered boards: {filteredBoards.length}</div>
-              <div>Search term: "{searchTerm}"</div>
-              <div>Debounced term: "{debouncedSearchTerm}"</div>
-              
-              {boards && boards.length > 0 && (
-                <details className="mt-2">
-                  <summary className="cursor-pointer text-blue-600">Show all boards</summary>
-                  <ul className="mt-1 max-h-40 overflow-y-auto bg-gray-50 p-2 rounded">
-                    {boards.map(b => (
-                      <li key={b.id}>
-                        ID: {b.id} | Name: {b.name} | Key: {b.key || 'N/A'}
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              )}
-              
-              {debouncedSearchTerm && filteredBoards.length > 0 && (
-                <details className="mt-2">
-                  <summary className="cursor-pointer text-green-600">
-                    Search results ({filteredBoards.length})
-                  </summary>
-                  <ul className="mt-1 max-h-40 overflow-y-auto bg-green-50 p-2 rounded">
-                    {filteredBoards.map(b => (
-                      <li key={b.id}>
-                        {b.name} (Key: {b.key || 'N/A'})
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              )}
-            </div>
-          )}
+          {/* Project Dropdown */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Select JIRA Project
+            </label>
+            <select
+              value={selectedProject}
+              onChange={(e) => handleProjectSelect(e.target.value)}
+              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
+              size={projectSearchTerm ? Math.min(8, filteredProjects.length + 1) : 1}
+            >
+              <option value="">-- Select a project --</option>
+              {filteredProjects && filteredProjects.map((project) => (
+                <option key={project.id} value={project.projectKey || project.key}>
+                  {project.name} ({project.projectKey || project.key})
+                </option>
+              ))}
+            </select>
+            {projectSearchTerm && filteredProjects.length === 0 && (
+              <p className="text-sm text-red-500 mt-1">
+                No projects found matching "{projectSearchTerm}"
+              </p>
+            )}
+          </div>
         </div>
+        
+        {/* Display Board and Sprint Info when project is selected */}
+        {selectedProject && boardInfo && (
+          <div className="mt-4 p-3 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg">
+            <div className="mb-2">
+              <span className="text-sm font-semibold text-gray-700">📋 Active Board: </span>
+              <span className="text-sm text-gray-900">{boardInfo.board?.name}</span>
+            </div>
+            {boardInfo.sprint ? (
+              <>
+                <div className="mb-1">
+                  <span className="text-sm font-semibold text-gray-700">🏃 Sprint: </span>
+                  <span className="text-sm text-gray-900">{boardInfo.sprint.name}</span>
+                </div>
+                {boardInfo.sprint.startDate && boardInfo.sprint.endDate && (
+                  <div>
+                    <span className="text-sm font-semibold text-gray-700">📅 Duration: </span>
+                    <span className="text-sm text-gray-600">
+                      {new Date(boardInfo.sprint.startDate).toLocaleDateString()} - {new Date(boardInfo.sprint.endDate).toLocaleDateString()}
+                    </span>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="text-sm text-yellow-600">
+                ⚠️ No active sprint - showing recent project tickets
+              </div>
+            )}
+            {selectedProject?.includes('WCTV') && allIssues?.find(t => t.key === 'ESWCTV-1124') && (
+              <div className="mt-2 text-sm text-green-600">
+                ✅ Demo ticket ESWCTV-1124 included
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {sprintLoading && selectedBoard && (
-        <div className="bg-white/95 backdrop-blur-sm shadow-xl rounded-xl p-6 animate-pulse card-hover">
-          <div className="animate-pulse">
-            <div className="h-4 bg-gray-200 rounded w-1/4"></div>
-            <div className="h-3 bg-gray-200 rounded w-1/3 mt-2"></div>
-          </div>
-        </div>
-      )}
-
-      {sprint && (
-        <div className="bg-white/95 backdrop-blur-sm shadow-xl rounded-xl p-6 animate-pulse card-hover">
-          <h3 className="text-lg font-medium text-gray-900">{sprint.name}</h3>
-          <p className="text-sm text-gray-600">Status: {sprint.state}</p>
-          {sprint.startDate && sprint.endDate && (
-            <p className="text-xs text-gray-500 mt-1">
-              {new Date(sprint.startDate).toLocaleDateString()} - {new Date(sprint.endDate).toLocaleDateString()}
-            </p>
-          )}
-        </div>
-      )}
-
-      {!sprint && selectedBoard && !sprintLoading && (
-        <div className="bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-200 rounded-xl p-4 animate-appear">
-          <p className="text-yellow-800">No active sprint found for this board</p>
-        </div>
-      )}
-
-      {issuesLoading && (
-        <div className="bg-white/95 backdrop-blur-sm shadow-xl rounded-xl p-4 card-hover">
-          <div className="animate-pulse space-y-2">
-            {[1,2,3].map(i => (
-              <div key={i} className="border p-3 rounded">
-                <div className="h-3 bg-gray-200 rounded w-1/4"></div>
-                <div className="h-2 bg-gray-200 rounded w-3/4 mt-2"></div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {issues && issues.length > 0 && (
-        <div className="bg-white/95 backdrop-blur-sm shadow-xl rounded-xl card-hover overflow-hidden">
-          <div className="p-4">
-            <h3 className="text-lg font-medium mb-4">
-              Sprint Issues ({issues.length}) - Board: {selectedBoard} - Sprint: {sprint?.name}
-            </h3>
-            <div className="space-y-2">
-              {issues.map((issue) => {
-                const isExpanded = expandedTickets.has(issue.key);
-                return (
-                  <div key={issue.key} className="border border-gray-200 rounded-xl overflow-hidden transition-all duration-200 hover:shadow-lg hover:border-blue-300 card-hover">
-                    {/* Ticket Header - Always Visible */}
-                    <div 
-                      className="p-3 hover:bg-gray-50 transition-colors cursor-pointer"
-                      onClick={() => {
-                        const newExpanded = new Set(expandedTickets);
-                        if (isExpanded) {
-                          newExpanded.delete(issue.key);
-                        } else {
-                          newExpanded.add(issue.key);
-                        }
-                        setExpandedTickets(newExpanded);
-                      }}
-                    >
-                      <div className="flex justify-between items-start">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-sm text-indigo-600">{issue.key}</span>
-                          {isExpanded ? 
-                            <ChevronUpIcon className="h-4 w-4 text-gray-500" /> : 
-                            <ChevronDownIcon className="h-4 w-4 text-gray-500" />
-                          }
-                        </div>
-                        <div className="flex gap-2">
-                          <span className={`text-xs px-2 py-1 rounded ${
-                            issue.type === 'Bug' ? 'bg-red-100 text-red-700' :
-                            issue.type === 'Story' ? 'bg-blue-100 text-blue-700' :
-                            'bg-gray-100 text-gray-700'
-                          }`}>
-                            {issue.type}
-                          </span>
-                          <span className={`text-xs px-2 py-1 rounded ${
-                            issue.status === 'Done' ? 'bg-green-100 text-green-700' :
-                            issue.status === 'In Progress' ? 'bg-yellow-100 text-yellow-700' :
-                            'bg-gray-100 text-gray-700'
-                          }`}>
-                            {issue.status}
-                          </span>
-                        </div>
-                      </div>
-                      <p className="text-sm text-gray-600 mt-1">{issue.summary}</p>
-                      {issue.assignee && (
-                        <p className="text-xs text-gray-500 mt-1">Assigned to: {issue.assignee}</p>
-                      )}
-                    </div>
-                    
-                    {/* Expanded Details */}
-                    {isExpanded && (
-                      <div className="bg-gray-50 p-3 border-t">
-                        {issue.description && (
-                          <div className="mb-3">
-                            <h4 className="text-xs font-semibold text-gray-700 mb-1">Description:</h4>
-                            <p className="text-sm text-gray-600 whitespace-pre-wrap">
-                              {issue.description.substring(0, 500)}
-                              {issue.description.length > 500 && '...'}
-                            </p>
-                          </div>
-                        )}
-                        
-                        {issue.acceptanceCriteria && (
-                          <div className="mb-3">
-                            <h4 className="text-xs font-semibold text-gray-700 mb-1">Acceptance Criteria:</h4>
-                            <p className="text-sm text-gray-600 whitespace-pre-wrap">
-                              {issue.acceptanceCriteria}
-                            </p>
-                          </div>
-                        )}
-                        
-                        {issue.priority && (
-                          <div className="mb-3">
-                            <span className="text-xs font-semibold text-gray-700">Priority: </span>
-                            <span className="text-sm text-gray-600">{issue.priority}</span>
-                          </div>
-                        )}
-                        
-                        <div className="mt-3 flex gap-2">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              navigate('/workflow', { 
-                                state: { 
-                                  ticket: {
-                                    key: issue.key,
-                                    summary: issue.summary,
-                                    description: issue.description || '',
-                                    type: issue.type,
-                                    priority: issue.priority,
-                                    assignee: issue.assignee,
-                                    status: issue.status,
-                                    acceptanceCriteria: issue.acceptanceCriteria
-                                  }
-                                } 
-                              })
-                            }}
-                            className="bg-indigo-600 text-white px-4 py-2 rounded text-sm hover:bg-indigo-700 transition-colors flex items-center gap-1"
-                          >
-                            ✨ Create Test Cases
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+      {/* Search and Tickets */}
+      {selectedProject && (
+        <>
+          {/* Search */}
+          <div className="bg-white/95 backdrop-blur-sm shadow-xl rounded-xl p-4 card-hover border border-blue-100/50">
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="text-lg font-medium text-gray-900">
+                {boardInfo?.sprint ? `Sprint: ${boardInfo.sprint.name}` : `Project: ${selectedProject}`}
+              </h3>
+              <button
+                onClick={() => window.location.reload()}
+                className="text-sm text-indigo-600 hover:text-indigo-700 bg-white px-3 py-1 rounded border border-indigo-300 hover:border-indigo-400"
+              >
+                Refresh
+              </button>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Search Tickets
+              </label>
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search by ticket key (e.g., 1124), summary, status, or type..."
+                className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
+              />
+              {searchTerm && (
+                <p className="text-xs text-gray-500 mt-1">
+                  Found {filteredTickets.length} of {allIssues.length} tickets matching "{searchTerm}"
+                </p>
+              )}
             </div>
           </div>
-        </div>
+
+          {/* Tickets List */}
+          {filteredTickets.length > 0 ? (
+            <div className="bg-white/95 backdrop-blur-sm shadow-xl rounded-xl card-hover overflow-hidden">
+              <div className="p-4">
+                <h3 className="text-lg font-medium mb-4">
+                  Tickets ({filteredTickets.length})
+                </h3>
+                <div className="space-y-2">
+                  {filteredTickets.map((issue) => {
+                    const isExpanded = expandedTickets.has(issue.key);
+                    const isDemoTicket = issue.key === 'ESWCTV-1124';
+                    
+                    return (
+                      <div 
+                        key={issue.key} 
+                        className={`border ${isDemoTicket ? 'border-orange-300 bg-orange-50/30' : 'border-gray-200'} rounded-xl overflow-hidden transition-all duration-200 hover:shadow-lg hover:border-blue-300 card-hover`}
+                      >
+                        <div 
+                          className="p-3 hover:bg-gray-50 transition-colors cursor-pointer"
+                          onClick={() => {
+                            const newExpanded = new Set(expandedTickets);
+                            if (isExpanded) {
+                              newExpanded.delete(issue.key);
+                            } else {
+                              newExpanded.add(issue.key);
+                            }
+                            setExpandedTickets(newExpanded);
+                          }}
+                        >
+                          <div className="flex justify-between items-start">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-sm text-indigo-600">{issue.key}</span>
+                              {isDemoTicket && (
+                                <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded font-medium">
+                                  Demo Ticket
+                                </span>
+                              )}
+                              {isExpanded ? 
+                                <ChevronUpIcon className="h-4 w-4 text-gray-500" /> : 
+                                <ChevronDownIcon className="h-4 w-4 text-gray-500" />
+                              }
+                            </div>
+                            <div className="flex gap-2">
+                              <span className={`text-xs px-2 py-1 rounded ${
+                                issue.type === 'Bug' ? 'bg-red-100 text-red-700' :
+                                issue.type === 'Story' ? 'bg-blue-100 text-blue-700' :
+                                'bg-gray-100 text-gray-700'
+                              }`}>
+                                {issue.type}
+                              </span>
+                              <span className={`text-xs px-2 py-1 rounded ${
+                                issue.status === 'Done' || issue.status === 'Resolved' || issue.status === 'Complete' 
+                                  ? 'bg-green-100 text-green-700' :
+                                issue.status === 'In Progress' || issue.status.includes('In Progress') 
+                                  ? 'bg-yellow-100 text-yellow-700' :
+                                'bg-gray-100 text-gray-700'
+                              }`}>
+                                {issue.status}
+                              </span>
+                            </div>
+                          </div>
+                          <p className="text-sm text-gray-600 mt-1">{issue.summary}</p>
+                          {issue.assignee && (
+                            <p className="text-xs text-gray-500 mt-1">Assigned to: {issue.assignee}</p>
+                          )}
+                        </div>
+                        
+                        {/* Expanded Details */}
+                        {isExpanded && (
+                          <div className="bg-gray-50 p-3 border-t">
+                            {issue.description && (
+                              <div className="mb-3">
+                                <h4 className="text-xs font-semibold text-gray-700 mb-1">Description:</h4>
+                                <p className="text-sm text-gray-600 whitespace-pre-wrap">
+                                  {issue.description.substring(0, 500)}
+                                  {issue.description.length > 500 && '...'}
+                                </p>
+                              </div>
+                            )}
+                            
+                            {issue.acceptanceCriteria && (
+                              <div className="mb-3">
+                                <h4 className="text-xs font-semibold text-gray-700 mb-1">Acceptance Criteria:</h4>
+                                <p className="text-sm text-gray-600 whitespace-pre-wrap">
+                                  {issue.acceptanceCriteria}
+                                </p>
+                              </div>
+                            )}
+                            
+                            {issue.priority && (
+                              <div className="mb-3">
+                                <span className="text-xs font-semibold text-gray-700">Priority: </span>
+                                <span className="text-sm text-gray-600">{issue.priority}</span>
+                              </div>
+                            )}
+                            
+                            <div className="mt-3 flex gap-2">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigate('/workflow', { 
+                                    state: { 
+                                      ticket: {
+                                        key: issue.key,
+                                        summary: issue.summary,
+                                        description: issue.description || '',
+                                        type: issue.type,
+                                        priority: issue.priority,
+                                        assignee: issue.assignee,
+                                        status: issue.status,
+                                        acceptanceCriteria: issue.acceptanceCriteria
+                                      }
+                                    } 
+                                  })
+                                }}
+                                className="bg-indigo-600 text-white px-4 py-2 rounded text-sm hover:bg-indigo-700 transition-colors flex items-center gap-1"
+                              >
+                                ✨ Create Test Cases
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-white/95 backdrop-blur-sm shadow-xl rounded-xl p-4 card-hover">
+              <p className="text-gray-500">
+                {searchTerm ? `No tickets found matching "${searchTerm}"` : 'No tickets available for this project'}
+              </p>
+            </div>
+          )}
+        </>
       )}
 
-      {issues && issues.length === 0 && (
-        <div className="bg-white/95 backdrop-blur-sm shadow-xl rounded-xl p-4 card-hover">
-          <p className="text-gray-500">No issues in this sprint</p>
+      {/* Initial state - no project selected */}
+      {!selectedProject && (
+        <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-xl p-8 text-center">
+          <p className="text-lg text-gray-700">
+            👆 Select a JIRA project above to view its active board and tickets
+          </p>
+          <p className="text-sm text-gray-600 mt-2">
+            For demo: Select <span className="font-medium">ESWCTV</span> or any project containing "WCTV"
+          </p>
         </div>
       )}
     </div>

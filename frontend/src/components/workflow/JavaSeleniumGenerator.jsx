@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import axios from 'axios';
 import SuccessAnimation from '../SuccessAnimation';
+import AIModelSelector from './AIModelSelector';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -184,12 +185,13 @@ export default function JavaSeleniumGenerator({
         // Continue with generation anyway - the backend will use defaults
       }
       
-      // Step 3: Generate the test based on patterns
+      // Step 3: Generate the test using Gemini AI with smart locators
       setGenerationStep('generating');
-      const response = await axios.post(`${API_URL}/api/java-selenium/generate`, {
+      const response = await axios.post(`${API_URL}/api/java-selenium/generate-with-gemini`, {
         manualTest,
         repoPath,
-        testDirectory: selectedDirectory
+        testDirectory: selectedDirectory,
+        ticket: manualTest.ticket || null
       });
       
       if (!response.data.test || !response.data.test.code) {
@@ -331,6 +333,15 @@ export default function JavaSeleniumGenerator({
   
   return (
     <div className="space-y-4">
+      {/* AI Model Selector */}
+      <div className="flex justify-between items-center">
+        <h3 className="text-lg font-semibold text-gray-900">Generate Selenium Test</h3>
+        <AIModelSelector 
+          onModelChange={(selection) => console.log('Model changed:', selection)}
+          className=""
+        />
+      </div>
+
       {/* Repository Path Input */}
       <div>
         <div className="flex items-center justify-between mb-2">

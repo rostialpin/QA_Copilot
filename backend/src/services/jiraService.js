@@ -167,10 +167,10 @@ export class JiraService {
       logger.info(`Searching for projects with query: "${query}"`);
       
       const authString = Buffer.from(`${this.email}:${this.apiToken}`).toString('base64');
-      // Use the query parameter to search for specific projects
+      // Use the query parameter to search for specific projects - increase maxResults to 500
       const url = query 
-        ? `${this.baseURL}/rest/api/2/project/search?query=${encodeURIComponent(query)}&maxResults=100`
-        : `${this.baseURL}/rest/api/2/project/search?maxResults=100`;
+        ? `${this.baseURL}/rest/api/2/project/search?query=${encodeURIComponent(query)}&maxResults=500`
+        : `${this.baseURL}/rest/api/2/project/search?maxResults=500`;
       
       const response = await axios({
         method: 'GET',
@@ -194,6 +194,43 @@ export class JiraService {
           projectCategory: project.projectCategory?.name || 'Uncategorized',
           boardId: boardMapping[project.key] // Add board ID for known projects
         }));
+        
+        // Always ensure key demo projects are included
+        const keyProjects = ['ESWCTV', 'ESW', 'ESR'];
+        const projectKeys = new Set(projects.map(p => p.key));
+        
+        // If any key project is missing and matches the query (or no query), try to fetch it directly
+        for (const keyProject of keyProjects) {
+          if (!projectKeys.has(keyProject) && (!query || keyProject.toLowerCase().includes(query.toLowerCase()))) {
+            try {
+              const projectUrl = `${this.baseURL}/rest/api/2/project/${keyProject}`;
+              const projectResponse = await axios({
+                method: 'GET',
+                url: projectUrl,
+                headers: {
+                  'Authorization': `Basic ${authString}`,
+                  'Accept': 'application/json',
+                  'Content-Type': 'application/json'
+                }
+              });
+              
+              if (projectResponse.data) {
+                const project = projectResponse.data;
+                projects.unshift({
+                  id: boardMapping[project.key] || parseInt(project.id),
+                  name: project.name,
+                  key: project.key,
+                  type: project.projectTypeKey || 'software',
+                  projectCategory: project.projectCategory?.name || 'Uncategorized',
+                  boardId: boardMapping[project.key]
+                });
+                logger.info(`Added key project ${keyProject} to results`);
+              }
+            } catch (err) {
+              logger.warn(`Could not fetch project ${keyProject} directly:`, err.message);
+            }
+          }
+        }
         
         logger.info(`Found ${projects.length} projects matching "${query}"`);
         return projects;
@@ -515,6 +552,227 @@ export class JiraService {
       return issues;
     } catch (error) {
       logger.error(`Error fetching issues for project ${projectKey}:`, error.message);
+      throw error;
+    }
+  }
+
+  async getResolvedTickets(projectKey = null, maxResults = 100) {
+    try {
+      let jql;
+      if (projectKey) {
+        logger.info(`Fetching resolved tickets for project ${projectKey}`);
+        jql = `project = ${projectKey} AND status in (Resolved, Done, Closed, Complete) ORDER BY updated DESC`;
+      } else {
+        logger.info('Fetching resolved tickets across all projects');
+        jql = `status in (Resolved, Done, Closed, Complete) ORDER BY updated DESC`;
+      }
+      
+      const authString = Buffer.from(`${this.email}:${this.apiToken}`).toString('base64');
+      const url = `${this.baseURL}/rest/api/2/search?jql=${encodeURIComponent(jql)}&maxResults=${maxResults}&fields=key,summary,description,status,priority,assignee,issuetype,resolved,resolution,customfield_10001,customfield_10004`;
+      
+      const response = await axios({
+        method: 'GET',
+        url,
+        headers: {
+          'Authorization': `Basic ${authString}`,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      const data = response.data;
+      
+      const issues = data.issues?.map(issue => ({
+        key: issue.key,
+        summary: issue.fields.summary,
+        description: issue.fields.description || '',
+        type: issue.fields.issuetype?.name || 'Story',
+        status: issue.fields.status?.name || 'To Do',
+        priority: issue.fields.priority?.name || 'Medium',
+        assignee: issue.fields.assignee?.displayName || 'Unassigned',
+        acceptanceCriteria: issue.fields.customfield_10001 || issue.fields.customfield_10004 || '',
+        resolved: issue.fields.resolved || null,
+        resolution: issue.fields.resolution?.name || null,
+        project: issue.fields.project?.key || projectKey
+      })) || [];
+      
+      logger.info(`Found ${issues.length} resolved tickets${projectKey ? ` for project ${projectKey}` : ''}`);
+      return issues;
+    } catch (error) {
+      logger.error(`Error fetching resolved tickets${projectKey ? ` for project ${projectKey}` : ''}:`, error.message);
+      throw error;
+    }
+  }
+
+  async getSpecificTicket(ticketKey) {
+    try {
+      logger.info(`Fetching specific ticket ${ticketKey}`);
+      
+      const authString = Buffer.from(`${this.email}:${this.apiToken}`).toString('base64');
+      const url = `${this.baseURL}/rest/api/2/issue/${ticketKey}?fields=key,summary,description,status,priority,assignee,issuetype,resolved,resolution,customfield_10001,customfield_10004,project,created,updated`;
+      
+      const response = await axios({
+        method: 'GET',
+        url,
+        headers: {
+          'Authorization': `Basic ${authString}`,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      const issue = response.data;
+      
+      const transformedIssue = {
+        key: issue.key,
+        summary: issue.fields.summary,
+        description: issue.fields.description || '',
+        type: issue.fields.issuetype?.name || 'Story',
+        status: issue.fields.status?.name || 'To Do',
+        priority: issue.fields.priority?.name || 'Medium',
+        assignee: issue.fields.assignee?.displayName || 'Unassigned',
+        acceptanceCriteria: issue.fields.customfield_10001 || issue.fields.customfield_10004 || '',
+        resolved: issue.fields.resolved || null,
+        resolution: issue.fields.resolution?.name || null,
+        project: issue.fields.project?.key || null,
+        created: issue.fields.created || null,
+        updated: issue.fields.updated || null
+      };
+      
+      logger.info(`Successfully fetched ticket ${ticketKey}`);
+      return transformedIssue;
+    } catch (error) {
+      logger.error(`Error fetching ticket ${ticketKey}:`, error.message);
+      if (error.response?.status === 404) {
+        throw new Error(`Ticket ${ticketKey} not found`);
+      }
+      throw error;
+    }
+  }
+
+  async getActiveSprints(boardId = null) {
+    try {
+      logger.info('Fetching active sprints');
+      
+      // If no boardId provided, get all boards and find active sprints
+      if (!boardId) {
+        const boards = await this.getBoards();
+        const activeSprints = [];
+        
+        for (const board of boards.slice(0, 5)) { // Check first 5 boards to avoid too many requests
+          try {
+            const sprints = await this.makeRequest(`/rest/agile/1.0/board/${board.id}/sprint?state=active`);
+            if (sprints.values && sprints.values.length > 0) {
+              activeSprints.push(...sprints.values.map(sprint => ({
+                ...sprint,
+                boardId: board.id,
+                boardName: board.name
+              })));
+            }
+          } catch (err) {
+            // Skip boards without sprint access
+            continue;
+          }
+        }
+        return activeSprints;
+      }
+      
+      // Get active sprints for specific board
+      const sprints = await this.makeRequest(`/rest/agile/1.0/board/${boardId}/sprint?state=active`);
+      return sprints.values || [];
+    } catch (error) {
+      logger.error('Error fetching active sprints:', error.message);
+      throw error;
+    }
+  }
+
+  async moveTicketToSprint(ticketKey, sprintId) {
+    try {
+      logger.info(`Moving ticket ${ticketKey} to sprint ${sprintId}`);
+      
+      const authString = Buffer.from(`${this.email}:${this.apiToken}`).toString('base64');
+      const url = `${this.baseURL}/rest/agile/1.0/sprint/${sprintId}/issue`;
+      
+      const response = await axios({
+        method: 'POST',
+        url,
+        headers: {
+          'Authorization': `Basic ${authString}`,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
+        data: {
+          issues: [ticketKey]
+        }
+      });
+      
+      logger.info(`Successfully moved ticket ${ticketKey} to sprint ${sprintId}`);
+      return { success: true, ticketKey, sprintId };
+    } catch (error) {
+      logger.error(`Error moving ticket ${ticketKey} to sprint:`, error.message);
+      throw error;
+    }
+  }
+
+  async getBoards(projectKeyOrId = null, maxResults = 50) {
+    try {
+      let url = `/rest/agile/1.0/board?maxResults=${maxResults}`;
+      if (projectKeyOrId) {
+        url += `&projectKeyOrId=${projectKeyOrId}`;
+      }
+      
+      const data = await this.makeRequest(url);
+      return data.values || [];
+    } catch (error) {
+      logger.error('Error fetching boards:', error.message);
+      throw error;
+    }
+  }
+
+  async getDemoTickets(projectKey = 'ESWCTV', includeResolved = true) {
+    try {
+      logger.info(`Fetching demo tickets for project ${projectKey}`);
+      
+      // Build JQL to get recent tickets including resolved ones for demo
+      let jql = `project = ${projectKey}`;
+      
+      if (includeResolved) {
+        // Get tickets from last 30 days including resolved ones
+        jql += ` AND updated >= -30d ORDER BY updated DESC`;
+      } else {
+        // Get only active tickets
+        jql += ` AND status NOT IN (Resolved, Done, Closed, Complete) ORDER BY updated DESC`;
+      }
+      
+      const authString = Buffer.from(`${this.email}:${this.apiToken}`).toString('base64');
+      const url = `${this.baseURL}/rest/api/2/search?jql=${encodeURIComponent(jql)}&maxResults=20&fields=key,summary,status,issuetype,priority,assignee,description,created,updated`;
+      
+      const response = await axios({
+        method: 'GET',
+        url,
+        headers: {
+          'Authorization': `Basic ${authString}`,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      const issues = response.data.issues || [];
+      
+      return issues.map(issue => ({
+        key: issue.key,
+        summary: issue.fields.summary,
+        status: issue.fields.status?.name,
+        type: issue.fields.issuetype?.name,
+        priority: issue.fields.priority?.name,
+        assignee: issue.fields.assignee?.displayName,
+        description: issue.fields.description,
+        created: issue.fields.created,
+        updated: issue.fields.updated,
+        isResolved: ['Resolved', 'Done', 'Closed', 'Complete'].includes(issue.fields.status?.name)
+      }));
+    } catch (error) {
+      logger.error('Error fetching demo tickets:', error.message);
       throw error;
     }
   }

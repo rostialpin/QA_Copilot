@@ -169,4 +169,122 @@ export class JiraController {
       next(error);
     }
   }
+
+  async getResolvedTickets(req, res, next) {
+    try {
+      const { projectKey } = req.query;
+      const { maxResults = 100 } = req.query;
+      const jiraService = await this.getJiraServiceForRequest(req);
+      const tickets = await jiraService.getResolvedTickets(projectKey, parseInt(maxResults));
+      res.json(tickets);
+    } catch (error) {
+      logger.error('Error fetching resolved tickets:', error);
+      next(error);
+    }
+  }
+
+  async getSpecificTicket(req, res, next) {
+    try {
+      const { ticketKey } = req.params;
+      const jiraService = await this.getJiraServiceForRequest(req);
+      const ticket = await jiraService.getSpecificTicket(ticketKey);
+      res.json(ticket);
+    } catch (error) {
+      logger.error('Error fetching specific ticket:', error);
+      if (error.message.includes('not found')) {
+        return res.status(404).json({
+          success: false,
+          message: error.message
+        });
+      }
+      next(error);
+    }
+  }
+
+  async getActiveSprints(req, res, next) {
+    try {
+      const { boardId } = req.query;
+      const jiraService = await this.getJiraServiceForRequest(req);
+      const activeSprints = await jiraService.getActiveSprints(boardId);
+      res.json({
+        success: true,
+        sprints: activeSprints,
+        count: activeSprints.length
+      });
+    } catch (error) {
+      logger.error('Error fetching active sprints:', error);
+      next(error);
+    }
+  }
+
+  async moveTicketToSprint(req, res, next) {
+    try {
+      const { ticketKey, sprintId } = req.body;
+      
+      if (!ticketKey || !sprintId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Both ticketKey and sprintId are required'
+        });
+      }
+      
+      const jiraService = await this.getJiraServiceForRequest(req);
+      const result = await jiraService.moveTicketToSprint(ticketKey, sprintId);
+      res.json({
+        success: true,
+        message: `Successfully moved ${ticketKey} to sprint ${sprintId}`,
+        ...result
+      });
+    } catch (error) {
+      logger.error('Error moving ticket to sprint:', error);
+      next(error);
+    }
+  }
+
+  async getBoards(req, res, next) {
+    try {
+      const { projectKey } = req.query;
+      const jiraService = await this.getJiraServiceForRequest(req);
+      const boards = await jiraService.getBoards(projectKey);
+      res.json({
+        success: true,
+        boards,
+        count: boards.length
+      });
+    } catch (error) {
+      logger.error('Error fetching boards:', error);
+      next(error);
+    }
+  }
+
+  async getDemoTickets(req, res, next) {
+    try {
+      const { projectKey = 'ESWCTV', includeResolved = true } = req.query;
+      const jiraService = await this.getJiraServiceForRequest(req);
+      const tickets = await jiraService.getDemoTickets(projectKey, includeResolved);
+      
+      // Ensure ESWCTV-1124 is included if not already present
+      const targetTicket = 'ESWCTV-1124';
+      const hasTargetTicket = tickets.some(t => t.key === targetTicket);
+      
+      if (!hasTargetTicket) {
+        try {
+          const specificTicket = await jiraService.getSpecificTicket(targetTicket);
+          tickets.unshift(specificTicket); // Add to beginning
+        } catch (err) {
+          logger.warn(`Could not fetch ${targetTicket} specifically`);
+        }
+      }
+      
+      res.json({
+        success: true,
+        tickets,
+        count: tickets.length,
+        message: 'Fetched recent tickets including resolved ones for demo'
+      });
+    } catch (error) {
+      logger.error('Error fetching demo tickets:', error);
+      next(error);
+    }
+  }
 }

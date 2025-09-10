@@ -69,6 +69,15 @@ export class GeminiService {
       options.customCommands = patterns.customCommands;
     }
     
+    // If repository path is provided, learn from element properties files
+    if (options.repositoryPath) {
+      const elementPatterns = await this.learnFromElementProperties(options.repositoryPath);
+      if (elementPatterns) {
+        logger.info('Learned element patterns from properties files');
+        options.elementPatterns = elementPatterns;
+      }
+    }
+    
     if (!this.model) {
       logger.warn('Gemini API not configured, returning fallback test cases');
       logger.warn('API Key status:', this.apiKey ? 'Present' : 'Missing');
@@ -129,14 +138,14 @@ export class GeminiService {
           steps: steps.length > 0 ? 
             steps.map((step, idx) => ({
               action: step,
-              expected: idx === steps.length - 1 ? 
+              expectedResult: idx === steps.length - 1 ? 
                 expectedBehavior : 
                 this.getStepExpectedResult(step)
             })) : 
             [
-              { action: 'Navigate to the affected feature', expected: 'Feature loads correctly' },
-              { action: 'Perform the action that previously caused the bug', expected: expectedBehavior },
-              { action: 'Verify the correct behavior', expected: 'System functions as intended' }
+              { action: 'Navigate to the affected feature', expectedResult: 'Feature loads correctly' },
+              { action: 'Perform the action that previously caused the bug', expectedResult: expectedBehavior },
+              { action: 'Verify the correct behavior', expectedResult: 'System functions as intended' }
             ],
           expectedResult: `✅ PASS: ${expectedBehavior} | ❌ FAIL: Bug still exists if ${actualBehavior}`
         },
@@ -162,9 +171,9 @@ export class GeminiService {
           preconditions: `Performance monitoring tools available. ${this.extractPreconditions(ticket)}`,
           priority: 'Medium',
           steps: [
-            { action: 'Establish baseline performance metrics', expected: 'Baseline recorded' },
-            { action: 'Execute the fixed functionality under normal load', expected: 'Response time within acceptable limits' },
-            { action: 'Compare metrics with baseline', expected: 'No significant performance degradation' }
+            { action: 'Establish baseline performance metrics', expectedResult: 'Baseline recorded' },
+            { action: 'Execute the fixed functionality under normal load', expectedResult: 'Response time within acceptable limits' },
+            { action: 'Compare metrics with baseline', expectedResult: 'No significant performance degradation' }
           ],
           expectedResult: 'Performance remains within acceptable thresholds after bug fix'
         },
@@ -174,9 +183,9 @@ export class GeminiService {
           preconditions: `Access to all supported platforms. ${this.extractPreconditions(ticket)}`,
           priority: 'High',
           steps: [
-            { action: 'Test fix on primary platform', expected: 'Bug is fixed on primary platform' },
-            { action: 'Test fix on secondary platforms', expected: 'Bug is fixed on all platforms' },
-            { action: 'Verify consistent behavior across platforms', expected: 'Behavior is consistent' }
+            { action: 'Test fix on primary platform', expectedResult: 'Bug is fixed on primary platform' },
+            { action: 'Test fix on secondary platforms', expectedResult: 'Bug is fixed on all platforms' },
+            { action: 'Verify consistent behavior across platforms', expectedResult: 'Behavior is consistent' }
           ],
           expectedResult: 'Bug fix is effective and consistent across all platforms'
         }
@@ -227,10 +236,10 @@ export class GeminiService {
           preconditions: `All integrated systems available. ${this.extractPreconditions(ticket)}`,
           priority: 'High',
           steps: [
-            { action: 'Test data flow to downstream systems', expected: 'Data transmitted correctly' },
-            { action: 'Verify upstream dependencies', expected: 'Dependencies functioning properly' },
-            { action: 'Check API interactions', expected: 'APIs respond as expected' },
-            { action: 'Validate data consistency', expected: 'Data remains consistent across systems' }
+            { action: 'Test data flow to downstream systems', expectedResult: 'Data transmitted correctly' },
+            { action: 'Verify upstream dependencies', expectedResult: 'Dependencies functioning properly' },
+            { action: 'Check API interactions', expectedResult: 'APIs respond as expected' },
+            { action: 'Validate data consistency', expectedResult: 'Data remains consistent across systems' }
           ],
           expectedResult: 'Feature integrates seamlessly with other components',
           testData: this.generateTestData(ticket)
@@ -241,10 +250,10 @@ export class GeminiService {
           preconditions: `UAT environment configured. ${this.extractPreconditions(ticket)}`,
           priority: 'High',
           steps: [
-            { action: 'Complete user workflow end-to-end', expected: 'Workflow completes successfully' },
-            { action: 'Verify business rules implementation', expected: 'Business logic correctly applied' },
-            { action: 'Check UI/UX requirements', expected: 'Interface meets specifications' },
-            { action: 'Validate user feedback incorporation', expected: 'User requirements satisfied' }
+            { action: 'Complete user workflow end-to-end', expectedResult: 'Workflow completes successfully' },
+            { action: 'Verify business rules implementation', expectedResult: 'Business logic correctly applied' },
+            { action: 'Check UI/UX requirements', expectedResult: 'Interface meets specifications' },
+            { action: 'Validate user feedback incorporation', expectedResult: 'User requirements satisfied' }
           ],
           expectedResult: 'Feature meets all acceptance criteria and user expectations',
           testData: this.generateTestData(ticket)
@@ -256,6 +265,238 @@ export class GeminiService {
     return { testCases: mockTestCases, style };
   }
 
+  async learnFromElementProperties(repoPath) {
+    try {
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      const elementPatterns = {
+        locators: {},
+        pageObjects: {},
+        frameworks: new Set(),
+        smartLocatorStrategies: []
+      };
+      
+      // Look for properties files in common locations
+      const propertiesLocations = [
+        '/src/main/resources/elements',
+        '/src/test/resources/elements',
+        '/src/main/resources/locators',
+        '/src/test/resources/locators'
+      ];
+      
+      for (const location of propertiesLocations) {
+        const fullPath = path.join(repoPath, location);
+        try {
+          const files = await this.findPropertiesFiles(fullPath);
+          for (const file of files) {
+            const content = await fs.readFile(file, 'utf8');
+            this.parsePropertiesFile(content, elementPatterns, file);
+          }
+        } catch (e) {
+          // Directory doesn't exist, continue
+        }
+      }
+      
+      // Also look for Page Object files
+      await this.findPageObjectPatterns(repoPath, elementPatterns);
+      
+      // Convert frameworks Set to Array for serialization
+      elementPatterns.frameworks = Array.from(elementPatterns.frameworks);
+      
+      // Generate smart locator strategies based on learned patterns
+      elementPatterns.smartLocatorStrategies = this.generateSmartLocatorStrategies(elementPatterns);
+      
+      return elementPatterns;
+    } catch (error) {
+      logger.error('Error learning from element properties:', error);
+      return null;
+    }
+  }
+  
+  async findPropertiesFiles(dirPath) {
+    const fs = await import('fs/promises');
+    const path = await import('path');
+    const files = [];
+    
+    try {
+      const entries = await fs.readdir(dirPath, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(dirPath, entry.name);
+        if (entry.isDirectory() && !entry.name.startsWith('.')) {
+          files.push(...await this.findPropertiesFiles(fullPath));
+        } else if (entry.name.endsWith('.properties')) {
+          files.push(fullPath);
+        }
+      }
+    } catch (e) {
+      // Directory doesn't exist
+    }
+    
+    return files;
+  }
+  
+  parsePropertiesFile(content, patterns, filePath) {
+    const lines = content.split('\n');
+    const fileName = filePath.split('/').pop().replace('.properties', '');
+    
+    if (!patterns.pageObjects[fileName]) {
+      patterns.pageObjects[fileName] = {};
+    }
+    
+    for (const line of lines) {
+      if (line.trim() && !line.startsWith('#')) {
+        const [key, value] = line.split('=').map(s => s.trim());
+        if (key && value) {
+          patterns.locators[key] = value;
+          patterns.pageObjects[fileName][key] = value;
+          
+          // Detect framework from locator patterns
+          if (value.includes('xpath:') || value.includes('css:')) {
+            patterns.frameworks.add('selenium');
+          }
+          if (value.includes('@FindBy')) {
+            patterns.frameworks.add('page-factory');
+          }
+          if (value.includes('data-testid') || value.includes('data-qa')) {
+            patterns.frameworks.add('modern-testing');
+          }
+        }
+      }
+    }
+  }
+  
+  async findPageObjectPatterns(repoPath, patterns) {
+    const fs = await import('fs/promises');
+    const path = await import('path');
+    
+    const pageObjectDirs = [
+      '/src/main/java',
+      '/src/test/java'
+    ];
+    
+    for (const dir of pageObjectDirs) {
+      const fullPath = path.join(repoPath, dir);
+      try {
+        await this.scanForPageObjects(fullPath, patterns);
+      } catch (e) {
+        // Directory doesn't exist
+      }
+    }
+  }
+  
+  async scanForPageObjects(dirPath, patterns) {
+    const fs = await import('fs/promises');
+    const path = await import('path');
+    
+    try {
+      const entries = await fs.readdir(dirPath, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(dirPath, entry.name);
+        if (entry.isDirectory() && !entry.name.startsWith('.') && 
+            entry.name !== 'target' && entry.name !== 'build') {
+          await this.scanForPageObjects(fullPath, patterns);
+        } else if (entry.name.endsWith('.java') && 
+                  (entry.name.includes('Page') || entry.name.includes('Screen'))) {
+          const content = await fs.readFile(fullPath, 'utf8');
+          this.extractPageObjectPatterns(content, patterns, entry.name);
+        }
+      }
+    } catch (e) {
+      // Error reading directory
+    }
+  }
+  
+  extractPageObjectPatterns(javaContent, patterns, fileName) {
+    // Extract @FindBy annotations
+    const findByPattern = /@FindBy\s*\(([^)]+)\)/g;
+    let match;
+    while ((match = findByPattern.exec(javaContent)) !== null) {
+      const annotation = match[1];
+      patterns.frameworks.add('page-factory');
+      
+      // Parse the annotation content for locator strategies
+      if (annotation.includes('id =')) {
+        const idMatch = annotation.match(/id\s*=\s*"([^"]+)"/); 
+        if (idMatch) {
+          patterns.locators[`${fileName}_id_${idMatch[1]}`] = `id:${idMatch[1]}`;
+        }
+      }
+      if (annotation.includes('xpath =')) {
+        const xpathMatch = annotation.match(/xpath\s*=\s*"([^"]+)"/); 
+        if (xpathMatch) {
+          patterns.locators[`${fileName}_xpath`] = `xpath:${xpathMatch[1]}`;
+        }
+      }
+    }
+    
+    // Extract method patterns that suggest framework usage
+    if (javaContent.includes('WebElement') || javaContent.includes('WebDriver')) {
+      patterns.frameworks.add('selenium');
+    }
+    if (javaContent.includes('BaseTest') || javaContent.includes('BasePage')) {
+      patterns.frameworks.add('custom-framework');
+    }
+    if (javaContent.includes('containerScreen()') || javaContent.includes('homeScreen()')) {
+      patterns.frameworks.add('screen-object-model');
+    }
+  }
+  
+  generateSmartLocatorStrategies(patterns) {
+    const strategies = [];
+    
+    // Analyze learned locators to determine best strategies
+    const locatorTypes = new Set();
+    for (const [key, value] of Object.entries(patterns.locators)) {
+      if (value.includes('data-testid')) locatorTypes.add('data-testid');
+      if (value.includes('data-qa')) locatorTypes.add('data-qa');
+      if (value.includes('id:')) locatorTypes.add('id');
+      if (value.includes('xpath:')) locatorTypes.add('xpath');
+      if (value.includes('css:')) locatorTypes.add('css');
+    }
+    
+    // Build priority order based on what's used in the codebase
+    if (locatorTypes.has('data-testid')) {
+      strategies.push({
+        type: 'data-testid',
+        priority: 1,
+        example: "By.cssSelector(\"[data-testid='elementName']\")"
+      });
+    }
+    if (locatorTypes.has('data-qa')) {
+      strategies.push({
+        type: 'data-qa',
+        priority: 2,
+        example: "By.cssSelector(\"[data-qa='elementName']\")"
+      });
+    }
+    if (locatorTypes.has('id')) {
+      strategies.push({
+        type: 'id',
+        priority: 3,
+        example: "By.id(\"elementName\")"
+      });
+    }
+    
+    // Always include these fallback strategies
+    strategies.push({
+      type: 'aria-label',
+      priority: 4,
+      example: "By.cssSelector(\"[aria-label*='elementName']\")"
+    });
+    strategies.push({
+      type: 'text-content',
+      priority: 5,
+      example: "By.xpath(\"//button[contains(text(), 'elementName')]\")"
+    });
+    strategies.push({
+      type: 'class-text-combo',
+      priority: 6,
+      example: "By.xpath(\"//*[contains(@class, 'button') and contains(text(), 'elementName')]\")"
+    });
+    
+    return strategies;
+  }
+  
   buildTestCasePrompt(ticket, options) {
     const { style = 'BDD', types = ['positive', 'negative', 'edge'] } = options;
     
@@ -291,6 +532,28 @@ This is an IMPROVEMENT ticket. Focus on:
 - Edge cases with the improved feature`;
     }
     
+    // Add element patterns to the prompt if available
+    let elementPatternsSection = '';
+    if (options.elementPatterns) {
+      elementPatternsSection = `
+
+PROJECT-SPECIFIC PATTERNS:
+=========================
+${options.elementPatterns.frameworks?.length > 0 ? `Detected Frameworks: ${options.elementPatterns.frameworks.join(', ')}` : ''}
+${options.elementPatterns.smartLocatorStrategies?.length > 0 ? `
+Locator Strategy Priority (use these in order of preference):
+${options.elementPatterns.smartLocatorStrategies.map(s => `  ${s.priority}. ${s.type}: ${s.example}`).join('\n')}` : ''}
+${Object.keys(options.elementPatterns.pageObjects || {}).length > 0 ? `
+Available Page Objects: ${Object.keys(options.elementPatterns.pageObjects).join(', ')}` : ''}
+
+IMPORTANT: When generating automation code:
+- Use the project's existing framework patterns (${options.elementPatterns.frameworks?.join(', ') || 'selenium'})
+- Implement multi-strategy element location with fallback mechanisms
+- For each UI element, provide multiple locator strategies in priority order
+- Use data-testid attributes when available, fall back to id, xpath, aria-label, etc.
+- Generate helper methods for element location that try multiple strategies`;
+    }
+    
     return `You are an expert QA engineer creating comprehensive test cases for a web application. Generate specific, actionable test cases for this JIRA ticket:
 
 TICKET INFORMATION:
@@ -315,6 +578,7 @@ ${ticket.technicalSpecs.endpoints?.length > 0 ? `Endpoints: ${JSON.stringify(tic
 ${ticket.technicalSpecs.uiElements?.length > 0 ? `UI Elements: ${ticket.technicalSpecs.uiElements.join(', ')}` : ''}
 ${ticket.technicalSpecs.events?.length > 0 ? `Events: ${ticket.technicalSpecs.events.join(', ')}` : ''}` : ''}
 ${contextualGuidance}
+${elementPatternsSection}
 
 REQUIREMENTS:
 =============
@@ -330,7 +594,7 @@ Each test case MUST include:
 4. priority: "High", "Medium", or "Low"
 5. steps: Array of step objects, each with:
    - action: Specific user action (e.g., "Click the 'Submit' button", "Enter 'test@example.com' in email field")
-   - expected: Specific expected result (e.g., "Error message 'Invalid email' appears", "Page redirects to dashboard")
+   - expectedResult: Specific expected result (e.g., "Error message 'Invalid email' appears", "Page redirects to dashboard")
 6. expectedResult: Overall expected outcome
 7. testData: Specific test data if needed (optional)
 
@@ -344,6 +608,17 @@ CRITICAL INSTRUCTIONS FOR SPECIFICITY:
 - For bugs: Focus on verifying the fix works, not reproducing the original issue
 - Include specific browser/device requirements if mentioned
 
+IMPORTANT - VALIDATION POINTS:
+- EVERY test step MUST have BOTH an action AND an expectedResult
+- The "expectedResult" field is MANDATORY and cannot be empty
+- Expected results should describe what the user should see/observe after the action
+- Examples of good expectedResult values:
+  * "Focus moves to the 'Play' button"
+  * "The 'Restart' button becomes highlighted with a blue border"
+  * "Error message 'Invalid input' appears below the field"
+  * "Page scrolls to the reviews section"
+  * "Loading spinner displays for 2-3 seconds then disappears"
+
 Format your response as a JSON array of test case objects. Example format:
 [
   {
@@ -352,10 +627,10 @@ Format your response as a JSON array of test case objects. Example format:
     "preconditions": "User account 'testuser@example.com' exists with password 'Test123!'",
     "priority": "High",
     "steps": [
-      {"action": "Navigate to login page at /login", "expected": "Login form is displayed with email and password fields"},
-      {"action": "Enter 'testuser@example.com' in the email field", "expected": "Email is accepted and displayed in the field"},
-      {"action": "Enter 'Test123!' in the password field", "expected": "Password is masked with dots"},
-      {"action": "Click the 'Sign In' button", "expected": "Loading spinner appears briefly"}
+      {"action": "Navigate to login page at /login", "expectedResult": "Login form is displayed with email and password fields"},
+      {"action": "Enter 'testuser@example.com' in the email field", "expectedResult": "Email is accepted and displayed in the field"},
+      {"action": "Enter 'Test123!' in the password field", "expectedResult": "Password is masked with dots"},
+      {"action": "Click the 'Sign In' button", "expectedResult": "Loading spinner appears briefly"}
     ],
     "expectedResult": "User is redirected to dashboard at /dashboard and sees welcome message",
     "testData": {"email": "testuser@example.com", "password": "Test123!"}
@@ -408,7 +683,7 @@ Format your response as a JSON array of test case objects. Example format:
           objective: 'AI-generated test case',
           preconditions: 'System is accessible',
           steps: [
-            { action: 'Perform test action', expected: 'Expected outcome' }
+            { action: 'Perform test action', expectedResult: 'Expected outcome' }
           ],
           expectedResult: 'Test passes successfully',
           priority: 'Medium'
@@ -420,9 +695,12 @@ Format your response as a JSON array of test case objects. Example format:
   convertStepsFormat(steps) {
     if (!steps) return [];
     
-    // If steps is already in the right format
+    // If steps is already in the right format, ensure expectedResult is not empty
     if (Array.isArray(steps) && steps.length > 0 && typeof steps[0] === 'object' && 'action' in steps[0]) {
-      return steps;
+      return steps.map(step => ({
+        action: step.action,
+        expectedResult: step.expected || step.expectedResult || this.generateDefaultExpected(step.action)
+      }));
     }
     
     // If steps is an array of strings (BDD format)
@@ -433,12 +711,12 @@ Format your response as a JSON array of test case objects. Example format:
         if (match) {
           const [, keyword, content] = match;
           if (keyword.toLowerCase() === 'then' || keyword.toLowerCase() === 'and' && index > 0 && steps[index-1].toLowerCase().includes('then')) {
-            return { action: 'Verify', expected: content };
+            return { action: 'Verify', expectedResult: content };
           }
-          return { action: content, expected: '' };
+          return { action: content, expectedResult: this.generateDefaultExpected(content) };
         }
-        // Default format
-        return { action: step, expected: '' };
+        // Default format - never return empty expectedResult
+        return { action: step, expectedResult: this.generateDefaultExpected(step) };
       });
     }
     
@@ -446,36 +724,80 @@ Format your response as a JSON array of test case objects. Example format:
     if (typeof steps === 'string') {
       return steps.split('\n').filter(s => s.trim()).map(step => ({
         action: step,
-        expected: ''
+        expectedResult: this.generateDefaultExpected(step)
       }));
     }
     
     return [];
   }
 
+  generateDefaultExpected(action) {
+    const actionLower = action.toLowerCase();
+    
+    // Navigation actions
+    if (actionLower.includes('navigate') || actionLower.includes('go to') || actionLower.includes('open')) {
+      if (actionLower.includes('page')) {
+        return 'The specified page loads successfully and displays correctly';
+      }
+      return 'The screen/view loads and displays the expected content';
+    }
+    
+    // Click/Press actions
+    if (actionLower.includes('click') || actionLower.includes('tap')) {
+      if (actionLower.includes('button')) {
+        return 'Button is clicked and responds with visual feedback';
+      }
+      if (actionLower.includes('link')) {
+        return 'Link is activated and navigates to the expected location';
+      }
+      return 'Element is selected and shows visual feedback';
+    }
+    
+    // Remote control actions
+    if (actionLower.includes('press') && (actionLower.includes('right') || actionLower.includes('left') || actionLower.includes('up') || actionLower.includes('down'))) {
+      return 'Focus moves to the next element in the specified direction';
+    }
+    
+    // Input actions
+    if (actionLower.includes('enter') || actionLower.includes('type') || actionLower.includes('input')) {
+      if (actionLower.includes('field')) {
+        return 'The text is entered and displayed in the field';
+      }
+      return 'Input is accepted and displayed correctly';
+    }
+    
+    // Selection actions
+    if (actionLower.includes('select') || actionLower.includes('choose')) {
+      return 'The option is selected and highlighted';
+    }
+    
+    // Observation actions
+    if (actionLower.includes('observe') || actionLower.includes('check') || actionLower.includes('view')) {
+      return 'The expected elements and content are visible on the screen';
+    }
+    
+    // Verification actions
+    if (actionLower.includes('verify') || actionLower.includes('ensure') || actionLower.includes('confirm')) {
+      return 'The condition is verified successfully';
+    }
+    
+    // Wait actions
+    if (actionLower.includes('wait') || actionLower.includes('load')) {
+      return 'The loading process completes within acceptable time';
+    }
+    
+    // Scroll actions
+    if (actionLower.includes('scroll')) {
+      return 'The page scrolls to the specified position smoothly';
+    }
+    
+    // Default
+    return 'The action completes successfully with expected behavior';
+  }
+  
   getStepExpectedResult(step) {
-    const stepLower = step.toLowerCase();
-    
-    if (stepLower.includes('navigate') || stepLower.includes('go to') || stepLower.includes('open')) {
-      return 'Page/screen loads successfully';
-    }
-    if (stepLower.includes('click') || stepLower.includes('tap') || stepLower.includes('press')) {
-      return 'Element responds to interaction';
-    }
-    if (stepLower.includes('enter') || stepLower.includes('type') || stepLower.includes('input')) {
-      return 'Input accepted and displayed';
-    }
-    if (stepLower.includes('select') || stepLower.includes('choose')) {
-      return 'Option selected successfully';
-    }
-    if (stepLower.includes('wait') || stepLower.includes('load')) {
-      return 'Process completes within acceptable time';
-    }
-    if (stepLower.includes('verify') || stepLower.includes('check')) {
-      return 'Verification successful';
-    }
-    
-    return 'Action completed successfully';
+    // This is kept for backward compatibility
+    return this.generateDefaultExpected(step);
   }
 
   parseStepsToReproduce(text) {
@@ -549,41 +871,41 @@ Format your response as a JSON array of test case objects. Example format:
     
     // Test with different data variations
     steps.push(
-      { action: 'Test with minimum valid input values', expected: expectedBehavior },
-      { action: 'Test with maximum valid input values', expected: expectedBehavior },
-      { action: 'Test with special characters if applicable', expected: expectedBehavior }
+      { action: 'Test with minimum valid input values', expectedResult: expectedBehavior },
+      { action: 'Test with maximum valid input values', expectedResult: expectedBehavior },
+      { action: 'Test with special characters if applicable', expectedResult: expectedBehavior }
     );
     
     // Add context-specific edge cases
     if (description.includes('mobile') || summary.includes('mobile')) {
       steps.push(
-        { action: 'Test on different mobile browsers (Chrome, Safari, Firefox)', expected: expectedBehavior },
-        { action: 'Test with different screen orientations', expected: expectedBehavior },
-        { action: 'Test with slow network connection', expected: expectedBehavior }
+        { action: 'Test on different mobile browsers (Chrome, Safari, Firefox)', expectedResult: expectedBehavior },
+        { action: 'Test with different screen orientations', expectedResult: expectedBehavior },
+        { action: 'Test with slow network connection', expectedResult: expectedBehavior }
       );
     }
     
     if (description.includes('login') || summary.includes('login')) {
       steps.push(
-        { action: 'Test with recently created account', expected: expectedBehavior },
-        { action: 'Test with old existing account', expected: expectedBehavior },
-        { action: 'Test rapid login attempts', expected: expectedBehavior },
-        { action: 'Test after password reset', expected: expectedBehavior }
+        { action: 'Test with recently created account', expectedResult: expectedBehavior },
+        { action: 'Test with old existing account', expectedResult: expectedBehavior },
+        { action: 'Test rapid login attempts', expectedResult: expectedBehavior },
+        { action: 'Test after password reset', expectedResult: expectedBehavior }
       );
     }
     
     if (description.includes('form') || description.includes('submit')) {
       steps.push(
-        { action: 'Test with all optional fields empty', expected: expectedBehavior },
-        { action: 'Test with all fields filled', expected: expectedBehavior },
-        { action: 'Test double-click on submit', expected: 'No duplicate submissions' }
+        { action: 'Test with all optional fields empty', expectedResult: expectedBehavior },
+        { action: 'Test with all fields filled', expectedResult: expectedBehavior },
+        { action: 'Test double-click on submit', expectedResult: 'No duplicate submissions' }
       );
     }
     
     // Always add browser/environment variations
     steps.push(
-      { action: 'Test after clearing cache and cookies', expected: expectedBehavior },
-      { action: 'Test in incognito/private mode', expected: expectedBehavior }
+      { action: 'Test after clearing cache and cookies', expectedResult: expectedBehavior },
+      { action: 'Test in incognito/private mode', expectedResult: expectedBehavior }
     );
     
     return steps;
@@ -597,35 +919,35 @@ Format your response as a JSON array of test case objects. Example format:
     // Add context-specific regression tests
     if (description.includes('login') || summary.includes('login')) {
       steps.push(
-        { action: 'Test login with different user roles', expected: 'All user types can login successfully' },
-        { action: 'Test logout functionality', expected: 'Logout works correctly' },
-        { action: 'Test session management', expected: 'Sessions are handled properly' }
+        { action: 'Test login with different user roles', expectedResult: 'All user types can login successfully' },
+        { action: 'Test logout functionality', expectedResult: 'Logout works correctly' },
+        { action: 'Test session management', expectedResult: 'Sessions are handled properly' }
       );
     } else if (description.includes('api') || summary.includes('api')) {
       steps.push(
-        { action: 'Test API with valid authentication', expected: 'API responds correctly' },
-        { action: 'Test API error handling', expected: 'Errors are handled gracefully' },
-        { action: 'Test API response times', expected: 'Performance is acceptable' }
+        { action: 'Test API with valid authentication', expectedResult: 'API responds correctly' },
+        { action: 'Test API error handling', expectedResult: 'Errors are handled gracefully' },
+        { action: 'Test API response times', expectedResult: 'Performance is acceptable' }
       );
     } else if (description.includes('form') || description.includes('input')) {
       steps.push(
-        { action: 'Test form validation for all fields', expected: 'Validation rules work correctly' },
-        { action: 'Test form submission with valid data', expected: 'Data is saved successfully' },
-        { action: 'Test form reset/cancel functionality', expected: 'Form can be cleared/cancelled' }
+        { action: 'Test form validation for all fields', expectedResult: 'Validation rules work correctly' },
+        { action: 'Test form submission with valid data', expectedResult: 'Data is saved successfully' },
+        { action: 'Test form reset/cancel functionality', expectedResult: 'Form can be cleared/cancelled' }
       );
     } else {
       // Generic regression steps
       steps.push(
-        { action: 'Test related features in the same module', expected: 'All related features work normally' },
-        { action: 'Verify data persistence after the fix', expected: 'Data is saved and retrieved correctly' },
-        { action: 'Check for any console errors or warnings', expected: 'No new errors introduced' }
+        { action: 'Test related features in the same module', expectedResult: 'All related features work normally' },
+        { action: 'Verify data persistence after the fix', expectedResult: 'Data is saved and retrieved correctly' },
+        { action: 'Check for any console errors or warnings', expectedResult: 'No new errors introduced' }
       );
     }
     
     // Add specific step about the fixed behavior
     steps.unshift({
       action: 'Verify the fixed functionality multiple times',
-      expected: `Consistently shows: ${expectedBehavior}`
+      expectedResult: `Consistently shows: ${expectedBehavior}`
     });
     
     return steps;
@@ -768,7 +1090,7 @@ Format your response as a JSON array of test case objects. Example format:
           priority: 'High',
           steps: uniqueCriteria.map(criterion => ({
             action: this.extractActionFromCriterion(criterion),
-            expected: `Criterion met: ${criterion}`
+            expectedResult: `Criterion met: ${criterion}`
           })),
           expectedResult: `All acceptance criteria satisfied`,
           testData: this.generateTestData(ticket)
@@ -806,7 +1128,7 @@ Format your response as a JSON array of test case objects. Example format:
       if (match) {
         steps.push({
           action: `Navigate to ${match[1].trim()}`,
-          expected: 'Page loads successfully'
+          expectedResult: 'Page loads successfully'
         });
       }
     }
@@ -817,7 +1139,7 @@ Format your response as a JSON array of test case objects. Example format:
       if (match) {
         steps.push({
           action: `Verify ${match[1].trim()}`,
-          expected: match[1].trim()
+          expectedResult: match[1].trim()
         });
       }
     }
@@ -831,7 +1153,7 @@ Format your response as a JSON array of test case objects. Example format:
         if (match) {
           steps.push({
             action: `${action.charAt(0).toUpperCase() + action.slice(1)} ${match[1].trim()}`,
-            expected: `${action.charAt(0).toUpperCase() + action.slice(1)} action completed successfully`
+            expectedResult: `${action.charAt(0).toUpperCase() + action.slice(1)} action completed successfully`
           });
         }
       }
@@ -841,18 +1163,18 @@ Format your response as a JSON array of test case objects. Example format:
     if (steps.length === 0) {
       steps.push({
         action: `Execute scenario: ${scenario}`,
-        expected: 'Scenario executes as described'
+        expectedResult: 'Scenario executes as described'
       });
       steps.push({
         action: 'Verify the outcome',
-        expected: 'Expected behavior is observed'
+        expectedResult: 'Expected behavior is observed'
       });
     }
     
     // Always add a final verification step
     steps.push({
       action: 'Confirm scenario completion',
-      expected: `Scenario "${this.summarizeScenario(scenario)}" validated successfully`
+      expectedResult: `Scenario "${this.summarizeScenario(scenario)}" validated successfully`
     });
     
     return steps;
@@ -872,7 +1194,7 @@ Format your response as a JSON array of test case objects. Example format:
         const actionVerb = this.extractActionFromCriterion(criterion);
         happyPath.push({
           action: actionVerb,
-          expected: `Acceptance criterion met: ${criterion}`
+          expectedResult: `Acceptance criterion met: ${criterion}`
         });
       });
     } else {
@@ -884,33 +1206,33 @@ Format your response as a JSON array of test case objects. Example format:
         // Fallback to specific patterns based on feature description
         if (fullText.includes('password reset')) {
         happyPath.push(
-          { action: 'Navigate to the password reset page', expected: 'Password reset form is displayed' },
-          { action: 'Enter registered email address', expected: 'Email field accepts the input' },
-          { action: 'Click "Send Reset Link" button', expected: 'Confirmation message appears' },
-          { action: 'Check email for reset link', expected: 'Email with reset link is received' },
-          { action: 'Click the reset link in email', expected: 'Password reset page opens with token' },
-          { action: 'Enter new password and confirmation', expected: 'Password fields accept input' },
-          { action: 'Submit new password', expected: 'Success message appears' },
-          { action: 'Login with new password', expected: 'Login successful with new credentials' }
+          { action: 'Navigate to the password reset page', expectedResult: 'Password reset form is displayed' },
+          { action: 'Enter registered email address', expectedResult: 'Email field accepts the input' },
+          { action: 'Click "Send Reset Link" button', expectedResult: 'Confirmation message appears' },
+          { action: 'Check email for reset link', expectedResult: 'Email with reset link is received' },
+          { action: 'Click the reset link in email', expectedResult: 'Password reset page opens with token' },
+          { action: 'Enter new password and confirmation', expectedResult: 'Password fields accept input' },
+          { action: 'Submit new password', expectedResult: 'Success message appears' },
+          { action: 'Login with new password', expectedResult: 'Login successful with new credentials' }
         );
         } else if (fullText.includes('registration') || fullText.includes('sign up')) {
         happyPath.push(
-          { action: 'Navigate to registration page', expected: 'Registration form is displayed' },
-          { action: 'Enter valid email address', expected: 'Email is accepted' },
-          { action: 'Enter password meeting requirements', expected: 'Password strength indicator shows strong' },
-          { action: 'Enter matching password confirmation', expected: 'Passwords match' },
-          { action: 'Accept terms and conditions', expected: 'Checkbox is selected' },
-          { action: 'Submit registration form', expected: 'Account created successfully' },
-          { action: 'Verify email confirmation', expected: 'Confirmation email received' }
+          { action: 'Navigate to registration page', expectedResult: 'Registration form is displayed' },
+          { action: 'Enter valid email address', expectedResult: 'Email is accepted' },
+          { action: 'Enter password meeting requirements', expectedResult: 'Password strength indicator shows strong' },
+          { action: 'Enter matching password confirmation', expectedResult: 'Passwords match' },
+          { action: 'Accept terms and conditions', expectedResult: 'Checkbox is selected' },
+          { action: 'Submit registration form', expectedResult: 'Account created successfully' },
+          { action: 'Verify email confirmation', expectedResult: 'Confirmation email received' }
         );
         } else {
           // Generic feature steps as last resort
           happyPath.push(
-            { action: `Navigate to ${ticket.summary} feature`, expected: 'Feature is accessible and loads correctly' },
-            { action: 'Review the interface and available options', expected: 'All expected elements are present' },
-            { action: 'Enter/select required information', expected: 'Input is accepted and validated' },
-            { action: 'Submit/save the changes', expected: 'Operation completes successfully' },
-            { action: 'Verify the results', expected: 'Changes are applied correctly' }
+            { action: `Navigate to ${ticket.summary} feature`, expectedResult: 'Feature is accessible and loads correctly' },
+            { action: 'Review the interface and available options', expectedResult: 'All expected elements are present' },
+            { action: 'Enter/select required information', expectedResult: 'Input is accepted and validated' },
+            { action: 'Submit/save the changes', expectedResult: 'Operation completes successfully' },
+            { action: 'Verify the results', expectedResult: 'Changes are applied correctly' }
           );
         }
       }
@@ -943,7 +1265,7 @@ Format your response as a JSON array of test case objects. Example format:
       const featureName = features.page || features.screen || features.modal || features.dialog;
       steps.push({
         action: `Navigate to ${featureName}`,
-        expected: `${featureName} loads successfully with all elements visible`
+        expectedResult: `${featureName} loads successfully with all elements visible`
       });
     }
     
@@ -951,98 +1273,98 @@ Format your response as a JSON array of test case objects. Example format:
     if (actions.create || fullText.includes('add') || fullText.includes('new')) {
       const entity = entities[0] || 'item';
       steps.push(
-        { action: `Click on 'Add ${entity}' or 'Create' button`, expected: 'Creation form/modal opens' },
-        { action: `Fill in all required fields for ${entity}`, expected: 'Fields accept valid input' },
-        { action: 'Submit the creation form', expected: `New ${entity} is created successfully` },
-        { action: `Verify ${entity} appears in the list/view`, expected: `${entity} is visible with correct details` }
+        { action: `Click on 'Add ${entity}' or 'Create' button`, expectedResult: 'Creation form/modal opens' },
+        { action: `Fill in all required fields for ${entity}`, expectedResult: 'Fields accept valid input' },
+        { action: 'Submit the creation form', expectedResult: `New ${entity} is created successfully` },
+        { action: `Verify ${entity} appears in the list/view`, expectedResult: `${entity} is visible with correct details` }
       );
     }
     
     if (actions.update || actions.edit || fullText.includes('modify')) {
       const entity = entities[0] || 'item';
       steps.push(
-        { action: `Select an existing ${entity} to edit`, expected: 'Edit form/mode opens with current data' },
-        { action: 'Modify one or more fields', expected: 'Fields are editable and accept new values' },
-        { action: 'Save the changes', expected: 'Changes are saved successfully' },
-        { action: 'Verify the updates persist', expected: 'Updated values are displayed correctly' }
+        { action: `Select an existing ${entity} to edit`, expectedResult: 'Edit form/mode opens with current data' },
+        { action: 'Modify one or more fields', expectedResult: 'Fields are editable and accept new values' },
+        { action: 'Save the changes', expectedResult: 'Changes are saved successfully' },
+        { action: 'Verify the updates persist', expectedResult: 'Updated values are displayed correctly' }
       );
     }
     
     if (actions.delete || actions.remove) {
       const entity = entities[0] || 'item';
       steps.push(
-        { action: `Select ${entity} to delete`, expected: `${entity} is selected` },
-        { action: 'Click delete/remove button', expected: 'Confirmation dialog appears' },
-        { action: 'Confirm deletion', expected: `${entity} is removed from the system` },
-        { action: 'Verify deletion', expected: `${entity} no longer appears in lists/searches` }
+        { action: `Select ${entity} to delete`, expectedResult: `${entity} is selected` },
+        { action: 'Click delete/remove button', expectedResult: 'Confirmation dialog appears' },
+        { action: 'Confirm deletion', expectedResult: `${entity} is removed from the system` },
+        { action: 'Verify deletion', expectedResult: `${entity} no longer appears in lists/searches` }
       );
     }
     
     if (actions.search || actions.filter || fullText.includes('find')) {
       steps.push(
-        { action: 'Enter search criteria', expected: 'Search field accepts input' },
-        { action: 'Execute search', expected: 'Search results are displayed' },
-        { action: 'Verify search results', expected: 'Results match search criteria' },
-        { action: 'Clear search', expected: 'All items are displayed again' }
+        { action: 'Enter search criteria', expectedResult: 'Search field accepts input' },
+        { action: 'Execute search', expectedResult: 'Search results are displayed' },
+        { action: 'Verify search results', expectedResult: 'Results match search criteria' },
+        { action: 'Clear search', expectedResult: 'All items are displayed again' }
       );
     }
     
     // 3. Integration scenarios
     if (fullText.includes('integrate') || fullText.includes('connect') || fullText.includes('sync')) {
       steps.push(
-        { action: 'Access integration settings', expected: 'Integration options are displayed' },
-        { action: 'Configure integration parameters', expected: 'Configuration is accepted' },
-        { action: 'Test the integration', expected: 'Connection is successful' },
-        { action: 'Verify data flow', expected: 'Data syncs correctly between systems' }
+        { action: 'Access integration settings', expectedResult: 'Integration options are displayed' },
+        { action: 'Configure integration parameters', expectedResult: 'Configuration is accepted' },
+        { action: 'Test the integration', expectedResult: 'Connection is successful' },
+        { action: 'Verify data flow', expectedResult: 'Data syncs correctly between systems' }
       );
     }
     
     // 4. Permission/Role scenarios
     if (fullText.includes('permission') || fullText.includes('role') || fullText.includes('access')) {
       steps.push(
-        { action: 'Test with different user roles', expected: 'Each role sees appropriate options' },
-        { action: 'Verify restricted actions', expected: 'Unauthorized actions are blocked' },
-        { action: 'Test permission inheritance', expected: 'Permissions cascade correctly' }
+        { action: 'Test with different user roles', expectedResult: 'Each role sees appropriate options' },
+        { action: 'Verify restricted actions', expectedResult: 'Unauthorized actions are blocked' },
+        { action: 'Test permission inheritance', expectedResult: 'Permissions cascade correctly' }
       );
     }
     
     // 5. Workflow scenarios
     if (fullText.includes('workflow') || fullText.includes('process') || fullText.includes('approval')) {
       steps.push(
-        { action: 'Initiate the workflow', expected: 'Workflow starts successfully' },
-        { action: 'Complete first step/stage', expected: 'Workflow advances to next stage' },
-        { action: 'Verify notifications sent', expected: 'Appropriate users are notified' },
-        { action: 'Complete the workflow', expected: 'Workflow completes with expected outcome' }
+        { action: 'Initiate the workflow', expectedResult: 'Workflow starts successfully' },
+        { action: 'Complete first step/stage', expectedResult: 'Workflow advances to next stage' },
+        { action: 'Verify notifications sent', expectedResult: 'Appropriate users are notified' },
+        { action: 'Complete the workflow', expectedResult: 'Workflow completes with expected outcome' }
       );
     }
     
     // 6. Report/Analytics scenarios
     if (fullText.includes('report') || fullText.includes('analytics') || fullText.includes('dashboard')) {
       steps.push(
-        { action: 'Access reporting section', expected: 'Reports/dashboard loads' },
-        { action: 'Select date range or filters', expected: 'Filters are applied' },
-        { action: 'Generate report', expected: 'Report displays correct data' },
-        { action: 'Export report', expected: 'Report exports in selected format' }
+        { action: 'Access reporting section', expectedResult: 'Reports/dashboard loads' },
+        { action: 'Select date range or filters', expectedResult: 'Filters are applied' },
+        { action: 'Generate report', expectedResult: 'Report displays correct data' },
+        { action: 'Export report', expectedResult: 'Report exports in selected format' }
       );
     }
     
     // 7. Settings/Configuration scenarios
     if (fullText.includes('setting') || fullText.includes('config') || fullText.includes('preference')) {
       steps.push(
-        { action: 'Access settings/configuration', expected: 'Settings page opens' },
-        { action: 'Modify configuration values', expected: 'Changes are accepted' },
-        { action: 'Save configuration', expected: 'Settings are saved' },
-        { action: 'Verify changes take effect', expected: 'System behavior reflects new settings' }
+        { action: 'Access settings/configuration', expectedResult: 'Settings page opens' },
+        { action: 'Modify configuration values', expectedResult: 'Changes are accepted' },
+        { action: 'Save configuration', expectedResult: 'Settings are saved' },
+        { action: 'Verify changes take effect', expectedResult: 'System behavior reflects new settings' }
       );
     }
     
     // 8. Notification scenarios
     if (fullText.includes('notification') || fullText.includes('alert') || fullText.includes('email')) {
       steps.push(
-        { action: 'Trigger notification event', expected: 'Notification is generated' },
-        { action: 'Check notification delivery', expected: 'Notification received by correct recipients' },
-        { action: 'Verify notification content', expected: 'Content is accurate and complete' },
-        { action: 'Test notification preferences', expected: 'User preferences are respected' }
+        { action: 'Trigger notification event', expectedResult: 'Notification is generated' },
+        { action: 'Check notification delivery', expectedResult: 'Notification received by correct recipients' },
+        { action: 'Verify notification content', expectedResult: 'Content is accurate and complete' },
+        { action: 'Test notification preferences', expectedResult: 'User preferences are respected' }
       );
     }
     
@@ -1110,18 +1432,18 @@ Format your response as a JSON array of test case objects. Example format:
         preconditions: 'Eden environment accessible, test user configured with appropriate subscription',
         priority: 'High',
         steps: [
-          { action: 'Access Eden dashboard/admin panel', expected: 'Eden interface loads successfully' },
-          { action: 'Navigate to the affected Eden feature/flow', expected: 'Feature is accessible' },
-          { action: 'Perform the steps described in the ticket', expected: 'Actions execute without errors' },
-          { action: 'Open developer console and network tab', expected: 'Console and network monitoring active' },
-          { action: 'Trigger the Eden event/action', expected: 'Event fires and is captured in logs' },
-          { action: 'Review Eden event logs', expected: 'Event structure matches expected format' },
+          { action: 'Access Eden dashboard/admin panel', expectedResult: 'Eden interface loads successfully' },
+          { action: 'Navigate to the affected Eden feature/flow', expectedResult: 'Feature is accessible' },
+          { action: 'Perform the steps described in the ticket', expectedResult: 'Actions execute without errors' },
+          { action: 'Open developer console and network tab', expectedResult: 'Console and network monitoring active' },
+          { action: 'Trigger the Eden event/action', expectedResult: 'Event fires and is captured in logs' },
+          { action: 'Review Eden event logs', expectedResult: 'Event structure matches expected format' },
           ...logEvents.map(event => ({
             action: `Verify log event: ${event}`,
-            expected: `Event "${event}" is present in logs with correct data`
+            expectedResult: `Event "${event}" is present in logs with correct data`
           })),
-          { action: 'Compare actual vs expected event payloads', expected: 'Payloads match the documented structure' },
-          { action: 'Validate UI state after event', expected: 'UI reflects the correct state based on event' }
+          { action: 'Compare actual vs expected event payloads', expectedResult: 'Payloads match the documented structure' },
+          { action: 'Validate UI state after event', expectedResult: 'UI reflects the correct state based on event' }
         ],
         expectedResult: 'All Eden events fire correctly with expected payloads and UI updates appropriately',
         testData: {
@@ -1140,13 +1462,13 @@ Format your response as a JSON array of test case objects. Example format:
         preconditions: 'Multiple test accounts with different subscription types',
         priority: 'Medium',
         steps: [
-          { action: 'Test with Essential Monthly subscription', expected: 'Flow works correctly' },
-          { action: 'Test with Essential Yearly subscription', expected: 'Flow works correctly' },
-          { action: 'Test with Premium Monthly subscription', expected: 'Flow works correctly' },
-          { action: 'Test with Premium Yearly subscription', expected: 'Flow works correctly' },
-          { action: 'Test upgrade flow', expected: 'Upgrade completes successfully' },
-          { action: 'Test downgrade flow', expected: 'Downgrade completes successfully' },
-          { action: 'Verify all Eden events fire correctly', expected: 'Events match expected patterns' }
+          { action: 'Test with Essential Monthly subscription', expectedResult: 'Flow works correctly' },
+          { action: 'Test with Essential Yearly subscription', expectedResult: 'Flow works correctly' },
+          { action: 'Test with Premium Monthly subscription', expectedResult: 'Flow works correctly' },
+          { action: 'Test with Premium Yearly subscription', expectedResult: 'Flow works correctly' },
+          { action: 'Test upgrade flow', expectedResult: 'Upgrade completes successfully' },
+          { action: 'Test downgrade flow', expectedResult: 'Downgrade completes successfully' },
+          { action: 'Verify all Eden events fire correctly', expectedResult: 'Events match expected patterns' }
         ],
         expectedResult: 'All subscription flows work correctly without regression'
       });
@@ -1160,14 +1482,14 @@ Format your response as a JSON array of test case objects. Example format:
         preconditions: 'Eden environment configured, test accounts with various subscription states',
         priority: 'High',
         steps: [
-          { action: 'Review Eden feature requirements', expected: 'Requirements understood' },
-          { action: 'Access Eden feature in test environment', expected: 'Feature is accessible' },
-          { action: 'Test primary Eden flow', expected: 'Flow completes successfully' },
-          { action: 'Verify Eden events fire correctly', expected: 'All events captured with correct data' },
-          { action: 'Test with different subscription tiers', expected: 'Feature behaves correctly for each tier' },
-          { action: 'Validate UI components render correctly', expected: 'All Eden UI elements display properly' },
-          { action: 'Test error scenarios', expected: 'Errors handled gracefully' },
-          { action: 'Verify analytics events', expected: 'Analytics capture correct Eden data' }
+          { action: 'Review Eden feature requirements', expectedResult: 'Requirements understood' },
+          { action: 'Access Eden feature in test environment', expectedResult: 'Feature is accessible' },
+          { action: 'Test primary Eden flow', expectedResult: 'Flow completes successfully' },
+          { action: 'Verify Eden events fire correctly', expectedResult: 'All events captured with correct data' },
+          { action: 'Test with different subscription tiers', expectedResult: 'Feature behaves correctly for each tier' },
+          { action: 'Validate UI components render correctly', expectedResult: 'All Eden UI elements display properly' },
+          { action: 'Test error scenarios', expectedResult: 'Errors handled gracefully' },
+          { action: 'Verify analytics events', expectedResult: 'Analytics capture correct Eden data' }
         ],
         expectedResult: 'Eden feature works as specified in requirements',
         notes: confluenceRefs.length > 0 ? 
@@ -1182,13 +1504,13 @@ Format your response as a JSON array of test case objects. Example format:
         preconditions: 'Test accounts in various states (trial, expired, cancelled, etc.)',
         priority: 'Medium',
         steps: [
-          { action: 'Test with trial account', expected: 'Appropriate trial limitations applied' },
-          { action: 'Test with expired subscription', expected: 'Expiry handled correctly' },
-          { action: 'Test with cancelled subscription', expected: 'Cancellation state reflected' },
-          { action: 'Test during plan transition', expected: 'Transition handled smoothly' },
-          { action: 'Test with payment failure state', expected: 'Payment issues handled gracefully' },
-          { action: 'Test concurrent Eden events', expected: 'Events don\'t conflict' },
-          { action: 'Test Eden feature in different locales', expected: 'Localization works correctly' }
+          { action: 'Test with trial account', expectedResult: 'Appropriate trial limitations applied' },
+          { action: 'Test with expired subscription', expectedResult: 'Expiry handled correctly' },
+          { action: 'Test with cancelled subscription', expectedResult: 'Cancellation state reflected' },
+          { action: 'Test during plan transition', expectedResult: 'Transition handled smoothly' },
+          { action: 'Test with payment failure state', expectedResult: 'Payment issues handled gracefully' },
+          { action: 'Test concurrent Eden events', expectedResult: 'Events don\'t conflict' },
+          { action: 'Test Eden feature in different locales', expectedResult: 'Localization works correctly' }
         ],
         expectedResult: 'All edge cases handled appropriately'
       });
@@ -1317,7 +1639,7 @@ Format your response as a JSON array of test case objects. Example format:
           priority: 'High',
           steps: ticket.technicalSpecs.endpoints.map(ep => ({
             action: `Test ${ep.method} ${ep.path}`,
-            expected: 'Endpoint responds with correct status and data structure'
+            expectedResult: 'Endpoint responds with correct status and data structure'
           })),
           expectedResult: 'All API endpoints function as documented'
         });
@@ -1331,7 +1653,7 @@ Format your response as a JSON array of test case objects. Example format:
           priority: 'Medium',
           steps: ticket.technicalSpecs.uiElements.map(element => ({
             action: `Locate and interact with "${element}"`,
-            expected: `"${element}" is visible and responds to interaction`
+            expectedResult: `"${element}" is visible and responds to interaction`
           })),
           expectedResult: 'All UI elements match documentation'
         });
@@ -1364,17 +1686,17 @@ Format your response as a JSON array of test case objects. Example format:
           if (trimmed.toLowerCase().startsWith('given')) {
             steps.push({
               action: `Setup: ${trimmed.substring(5).trim()}`,
-              expected: 'Precondition established'
+              expectedResult: 'Precondition established'
             });
           } else if (trimmed.toLowerCase().startsWith('when')) {
             steps.push({
               action: trimmed.substring(4).trim(),
-              expected: 'Action performed successfully'
+              expectedResult: 'Action performed successfully'
             });
           } else if (trimmed.toLowerCase().startsWith('then')) {
             steps.push({
               action: 'Verify result',
-              expected: trimmed.substring(4).trim()
+              expectedResult: trimmed.substring(4).trim()
             });
           }
         }
@@ -1387,7 +1709,7 @@ Format your response as a JSON array of test case objects. Example format:
     
     return steps.length > 0 ? steps : [{
       action: `Execute: ${scenario}`,
-      expected: 'Scenario completes as documented'
+      expectedResult: 'Scenario completes as documented'
     }];
   }
 
@@ -1443,31 +1765,31 @@ Format your response as a JSON array of test case objects. Example format:
     
     if (description.includes('email')) {
       steps.push(
-        { action: 'Enter invalid email format', expected: 'Email validation error appears' },
-        { action: 'Enter email without domain', expected: 'Invalid email error shown' }
+        { action: 'Enter invalid email format', expectedResult: 'Email validation error appears' },
+        { action: 'Enter email without domain', expectedResult: 'Invalid email error shown' }
       );
     }
     
     if (description.includes('password')) {
       steps.push(
-        { action: 'Enter password below minimum length', expected: 'Password too short error' },
-        { action: 'Enter password without required characters', expected: 'Password complexity error' }
+        { action: 'Enter password below minimum length', expectedResult: 'Password too short error' },
+        { action: 'Enter password without required characters', expectedResult: 'Password complexity error' }
       );
     }
     
     if (description.includes('date') || description.includes('time')) {
       steps.push(
-        { action: 'Enter invalid date format', expected: 'Date format error appears' },
-        { action: 'Enter date in the past (if not allowed)', expected: 'Invalid date range error' }
+        { action: 'Enter invalid date format', expectedResult: 'Date format error appears' },
+        { action: 'Enter date in the past (if not allowed)', expectedResult: 'Invalid date range error' }
       );
     }
     
     // Always add generic validation
     steps.push(
-      { action: 'Leave all required fields empty', expected: 'Required field errors appear' },
-      { action: 'Enter data exceeding maximum length', expected: 'Maximum length error shown' },
-      { action: 'Submit form with validation errors', expected: 'Form submission is prevented' },
-      { action: 'Correct all validation errors', expected: 'Errors clear when fixed' }
+      { action: 'Leave all required fields empty', expectedResult: 'Required field errors appear' },
+      { action: 'Enter data exceeding maximum length', expectedResult: 'Maximum length error shown' },
+      { action: 'Submit form with validation errors', expectedResult: 'Form submission is prevented' },
+      { action: 'Correct all validation errors', expectedResult: 'Errors clear when fixed' }
     );
     
     return steps;
@@ -1480,29 +1802,29 @@ Format your response as a JSON array of test case objects. Example format:
     // Add context-specific edge cases
     if (description.includes('upload') || description.includes('file')) {
       steps.push(
-        { action: 'Upload file at maximum size limit', expected: 'File is accepted' },
-        { action: 'Upload file slightly over limit', expected: 'File size error shown' },
-        { action: 'Upload unsupported file type', expected: 'File type error shown' },
-        { action: 'Upload multiple files simultaneously', expected: 'All files processed correctly' }
+        { action: 'Upload file at maximum size limit', expectedResult: 'File is accepted' },
+        { action: 'Upload file slightly over limit', expectedResult: 'File size error shown' },
+        { action: 'Upload unsupported file type', expectedResult: 'File type error shown' },
+        { action: 'Upload multiple files simultaneously', expectedResult: 'All files processed correctly' }
       );
     }
     
     if (description.includes('search')) {
       steps.push(
-        { action: 'Search with special characters', expected: 'Search handles special chars correctly' },
-        { action: 'Search with very long query', expected: 'Query is truncated appropriately' },
-        { action: 'Search with no results', expected: 'No results message shown' },
-        { action: 'Search with SQL injection attempt', expected: 'Input is sanitized safely' }
+        { action: 'Search with special characters', expectedResult: 'Search handles special chars correctly' },
+        { action: 'Search with very long query', expectedResult: 'Query is truncated appropriately' },
+        { action: 'Search with no results', expectedResult: 'No results message shown' },
+        { action: 'Search with SQL injection attempt', expectedResult: 'Input is sanitized safely' }
       );
     }
     
     // Generic edge cases
     steps.push(
-      { action: 'Test with minimum valid values', expected: 'Minimum values accepted' },
-      { action: 'Test with maximum valid values', expected: 'Maximum values handled' },
-      { action: 'Test with unicode and emoji characters', expected: 'Special characters handled' },
-      { action: 'Test rapid successive submissions', expected: 'Duplicate prevention works' },
-      { action: 'Test browser back/forward navigation', expected: 'State maintained correctly' }
+      { action: 'Test with minimum valid values', expectedResult: 'Minimum values accepted' },
+      { action: 'Test with maximum valid values', expectedResult: 'Maximum values handled' },
+      { action: 'Test with unicode and emoji characters', expectedResult: 'Special characters handled' },
+      { action: 'Test rapid successive submissions', expectedResult: 'Duplicate prevention works' },
+      { action: 'Test browser back/forward navigation', expectedResult: 'State maintained correctly' }
     );
     
     return steps;
@@ -1639,4 +1961,73 @@ Return a JSON object with:
       };
     }
   }
+
+  /**
+   * Generate automation code using Gemini AI
+   */
+  async generateAutomationCode(prompt, options = {}) {
+    if (!this.model) {
+      logger.warn('Gemini API not configured for automation generation');
+      // Return a basic structure
+      return {
+        code: '// Gemini API not configured',
+        className: 'GeneratedTest',
+        packageName: 'com.example.tests',
+        fileName: 'GeneratedTest.java'
+      };
+    }
+
+    try {
+      logger.info('Generating automation code with Gemini AI');
+      
+      // Add specific instructions for code generation
+      const enhancedPrompt = prompt + `
+
+OUTPUT FORMAT:
+==============
+Generate ONLY the Java code without any markdown formatting or explanations.
+The code should be complete and ready to compile.
+Include all necessary imports.
+Do not wrap the code in markdown code blocks.
+Start directly with the package declaration.`;
+
+      const result = await this.model.generateContent(enhancedPrompt);
+      const response = await result.response;
+      const generatedCode = response.text();
+      
+      // Clean up the generated code
+      let cleanedCode = generatedCode;
+      
+      // Remove markdown code blocks if present
+      if (cleanedCode.includes('```java')) {
+        cleanedCode = cleanedCode.replace(/```java\n?/g, '').replace(/```\n?/g, '');
+      }
+      
+      // Extract class name from the code
+      const classNameMatch = cleanedCode.match(/public\s+class\s+(\w+)/);
+      const className = classNameMatch ? classNameMatch[1] : 'GeneratedTest';
+      
+      // Extract package name from the code
+      const packageMatch = cleanedCode.match(/package\s+([\w.]+);/);
+      const packageName = packageMatch ? packageMatch[1] : 'com.example.tests';
+      
+      logger.info(`Generated test class: ${className} in package ${packageName}`);
+      
+      return {
+        code: cleanedCode,
+        className,
+        packageName,
+        fileName: `${className}.java`,
+        usedGemini: true,
+        elementPatternsUsed: options.elementPatterns ? true : false
+      };
+    } catch (error) {
+      logger.error('Error generating automation code with Gemini:', error);
+      throw error;
+    }
+  }
 }
+
+// Export singleton instance
+export const geminiService = new GeminiService();
+export default geminiService;

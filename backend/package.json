@@ -15,17 +15,20 @@
     "test:watch": "node --test --watch"
   },
   "dependencies": {
-    "express": "^4.21.1",
-    "cors": "^2.8.5",
-    "axios": "^1.7.7",
+    "@anthropic-ai/sdk": "^0.61.0",
     "@google/generative-ai": "^0.21.0",
-    "sqlite3": "^5.1.7",
-    "sequelize": "^6.37.3",
-    "express-rate-limit": "^7.4.1",
-    "winston": "^3.15.0",
-    "joi": "^17.13.3",
     "@octokit/rest": "^21.0.2",
+    "axios": "^1.7.7",
     "cheerio": "^1.0.0",
-    "node-cache": "^5.1.2"
+    "cors": "^2.8.5",
+    "express": "^4.21.1",
+    "express-rate-limit": "^7.4.1",
+    "globby": "^14.1.0",
+    "joi": "^17.13.3",
+    "node-cache": "^5.1.2",
+    "puppeteer": "^24.19.0",
+    "sequelize": "^6.37.3",
+    "sqlite3": "^5.1.7",
+    "winston": "^3.15.0"
   }
 }

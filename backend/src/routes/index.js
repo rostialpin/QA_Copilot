@@ -6,6 +6,9 @@ import { cypressRouter } from './cypress.routes.js';
 import { workflowRouter } from './workflow.routes.js';
 import javaSeleniumRouter from './javaSelenium.routes.js';
 import playwrightRouter from './playwright.routes.js';
+import domAnalyzerRouter from './domAnalyzer.routes.js';
+import smartTestGeneratorRouter from './smartTestGenerator.routes.js';
+import aiRouter from './ai.routes.js';
 
 export const router = express.Router();
 
@@ -22,3 +25,6 @@ router.use('/cypress', cypressRouter);
 router.use('/workflow', workflowRouter);
 router.use('/java-selenium', javaSeleniumRouter);
 router.use('/playwright', playwrightRouter);
+router.use('/dom-analyzer', domAnalyzerRouter);
+router.use('/smart-test', smartTestGeneratorRouter);
+router.use('/ai', aiRouter);
