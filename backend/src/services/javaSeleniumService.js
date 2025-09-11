@@ -245,7 +245,9 @@ export class JavaSeleniumService {
           // Categorize file
           if (entry.name.includes('Test') || relativePath.includes('test')) {
             index.testFiles.push(fileInfo);
-          } else if (entry.name.includes('Page') || content.includes('@FindBy')) {
+          } else if (entry.name.includes('Page') || entry.name.includes('Screen') || content.includes('@FindBy')) {
+            // Extract public methods from Page Objects/Screens for better pattern learning
+            fileInfo.publicMethods = this.extractPublicMethods(content);
             index.pageObjects.push(fileInfo);
           } else if (relativePath.includes('util') || relativePath.includes('helper')) {
             index.utilities.push(fileInfo);
@@ -385,6 +387,32 @@ export class JavaSeleniumService {
   }
 
   /**
+   * Extract public methods from Page Object/Screen files
+   */
+  extractPublicMethods(content) {
+    const methods = [];
+    // Match public methods (excluding constructors)
+    // Pattern: public [returnType] methodName(params)
+    const regex = /public\s+(?!class|interface|enum)(?:\w+(?:<[^>]+>)?)\s+(\w+)\s*\([^)]*\)/g;
+    let match;
+    
+    while ((match = regex.exec(content)) !== null) {
+      const methodName = match[1];
+      // Skip constructors and common Object methods
+      if (!methodName.match(/^(equals|hashCode|toString|clone|finalize|getClass|notify|notifyAll|wait)$/)) {
+        // Extract the full method signature for better context
+        const fullMatch = match[0];
+        methods.push({
+          name: methodName,
+          signature: fullMatch
+        });
+      }
+    }
+    
+    return methods;
+  }
+
+  /**
    * Learn patterns from test files in a directory
    */
   async learnPatterns(repoPath, testDirectory, forceReindex = false) {
@@ -470,6 +498,39 @@ export class JavaSeleniumService {
     // WebDriver patterns
     const driverPatterns = content.match(/(?:driver|webDriver|browser)\.\w+\([^)]*\)/g) || [];
     patterns.pageObjectUsage.push(...driverPatterns);
+
+    // IMPROVED: Navigation patterns - look for common navigation methods
+    if (!patterns.navigationMethods) patterns.navigationMethods = [];
+    const navigationPatterns = [
+      /(?:navigateTo|goTo|openPage|visitPage|open)\w*\([^)]*\)/g,  // Common navigation method names
+      /\.get\("[^"]+"\)/g,  // driver.get() calls
+      /\.navigate\(\)\.to\([^)]+\)/g,  // driver.navigate().to() calls
+      /new\s+\w+Page\([^)]*\)/g,  // Page object instantiation
+      /\w+Page\s*\.\s*\w+\(\)/g  // Page object method calls
+    ];
+    
+    navigationPatterns.forEach(pattern => {
+      const matches = content.match(pattern) || [];
+      if (matches.length > 0) {
+        patterns.navigationMethods.push(...matches);
+      }
+    });
+
+    // IMPROVED: Page Object patterns - look for page object usage
+    if (!patterns.pageObjects) patterns.pageObjects = [];
+    const pageObjectPatterns = [
+      /(?:private|public|protected)?\s*(?:final)?\s*\w+Page\s+\w+/g,  // Page object declarations
+      /@FindBy\([^)]+\)/g,  // FindBy annotations
+      /PageFactory\.initElements/g,  // PageFactory usage
+      /\w+Page\s*=\s*new\s+\w+Page/g  // Page object instantiation
+    ];
+    
+    pageObjectPatterns.forEach(pattern => {
+      const matches = content.match(pattern) || [];
+      if (matches.length > 0) {
+        patterns.pageObjects.push(...matches);
+      }
+    });
 
     // Setup/Teardown patterns - look for various annotations
     const setupAnnotations = ['@Before', '@BeforeEach', '@BeforeAll', '@BeforeClass'];
@@ -1330,8 +1391,22 @@ export class JavaSeleniumService {
     const patterns = this.patterns.get(repoPath) || 
                     await this.learnPatterns(repoPath, testDirectory);
     
+    // Get indexed repository data to find Page Object methods
+    const index = await this.indexRepository(repoPath);
+    
     const className = this.generateClassName(manualTest.title);
     const packageName = this.extractPackageFromPath(testDirectory) || 'com.viacom.unified.tests.container';
+    
+    // Collect available Page Object methods
+    let pageObjectMethods = [];
+    if (index.pageObjects && index.pageObjects.length > 0) {
+      for (const pageObj of index.pageObjects.slice(0, 5)) {
+        if (pageObj.publicMethods && pageObj.publicMethods.length > 0) {
+          const methodNames = pageObj.publicMethods.map(m => `  - ${pageObj.className}.${m.name}()`);
+          pageObjectMethods.push(`${pageObj.className}:\n${methodNames.join('\n')}`);
+        }
+      }
+    }
     
     let prompt = `Generate a Java Selenium test class based on the following manual test case.
 
@@ -1358,22 +1433,50 @@ Step ${i + 1}:
 
 Expected Result: ${manualTest.expectedResult}
 
+EXISTING NAVIGATION PATTERNS:
+============================
+${patterns?.navigationMethods?.length > 0 ? `
+The codebase uses these navigation methods - REUSE THEM:
+${patterns.navigationMethods.slice(0, 5).join('\n')}
+
+Common navigation methods to use:
+- launchAppAndNavigateToHomeScreen() - for initial app launch and navigation
+- homeScreen().openShowFromMovieSection(data, movieItem) - for navigating to content
+- containerScreen().selectQAB() - for interacting with Quick Action Bar
+- clearWatchHistory(movieItem.getMgid()) - for test cleanup
+- disableAVODAds() - for test setup
+` : ''}
+
+${patterns?.pageObjects?.length > 0 ? `
+Page Objects used in the codebase:
+${patterns.pageObjects.slice(0, 5).join('\n')}
+` : ''}
+
+${pageObjectMethods.length > 0 ? `
+AVAILABLE PAGE OBJECT METHODS:
+==============================
+${pageObjectMethods.join('\n\n')}
+
+IMPORTANT: Use these existing Page Object methods instead of creating new element locators when possible.
+` : ''}
+
 REQUIREMENTS:
 =============
 1. Extend BaseTest class and use Factory pattern with TestParams
 2. Include proper TestNG annotations (@Test, @Factory, @Description, etc.)
 3. Use framework-specific annotations (@Platforms, @AppBrand, @Locales)
-4. Implement multi-strategy element location with fallback mechanisms
-5. For EACH UI element, create a helper method that tries multiple locator strategies:
+4. IMPORTANT: Reuse existing navigation methods like launchAppAndNavigateToHomeScreen()
+5. Implement multi-strategy element location with fallback mechanisms
+6. For EACH UI element, create a helper method that tries multiple locator strategies:
    - Priority 1: data-testid attribute
    - Priority 2: id attribute
    - Priority 3: xpath with text content
    - Priority 4: aria-label attribute
    - Priority 5: class and text combination
-6. Use SoftAssert for multiple validations
-7. Include proper error handling and logging
-8. Generate methods like findElement_ButtonName() that implement the multi-strategy approach
-9. Use existing page object methods when available (containerScreen(), homeScreen(), etc.)
+7. Use SoftAssert for multiple validations
+8. Include proper error handling and logging
+9. Generate methods like findElement_ButtonName() that implement the multi-strategy approach
+10. Use existing page object methods when available (containerScreen(), homeScreen(), etc.)
 
 ELEMENT LOCATION EXAMPLE:
 ========================

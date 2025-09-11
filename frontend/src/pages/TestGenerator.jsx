@@ -26,6 +26,8 @@ export default function TestGenerator() {
   const [showTestRailOptions, setShowTestRailOptions] = useState(false);
   const [testRailResults, setTestRailResults] = useState(null);
   const [showTestRailSuccess, setShowTestRailSuccess] = useState(false);
+  const [showTestTypeModal, setShowTestTypeModal] = useState(false);
+  const [selectedTestType, setSelectedTestType] = useState('functional');
 
   // Fetch TestRail projects
   const { data: projects } = useQuery({
@@ -42,7 +44,12 @@ export default function TestGenerator() {
   });
 
   const generateMutation = useMutation({
-    mutationFn: () => geminiApi.generateTestCases(ticket),
+    mutationFn: (testTypes = ['functional']) => geminiApi.generateTestCases(ticket, { 
+      testTypes,
+      includePerformance: testTypes.includes('performance'),
+      includeSecurity: testTypes.includes('security'),
+      includeAccessibility: testTypes.includes('accessibility')
+    }),
     onSuccess: (data) => {
       setTestCases(data.testCases || data);
       toast.success(`Generated ${data.testCases?.length || data.length} test cases!`);
@@ -99,6 +106,82 @@ export default function TestGenerator() {
       toast.error(`Failed to push to TestRail: ${error.message}`);
     }
   });
+
+  // Test type templates
+  const getTestCaseTemplate = (testType) => {
+    const templates = {
+      functional: {
+        title: 'New Functional Test Case',
+        objective: 'Verify functional behavior',
+        preconditions: '',
+        priority: 'Medium',
+        testType: 'functional',
+        steps: [{ action: '', expected: '' }],
+        expectedResult: ''
+      },
+      performance: {
+        title: 'New Performance Test Case',
+        objective: 'Measure and validate system performance',
+        preconditions: 'System under normal load conditions',
+        priority: 'High',
+        testType: 'performance',
+        metrics: {
+          responseTime: '',
+          throughput: '',
+          resourceUsage: ''
+        },
+        steps: [
+          { action: 'Set up performance monitoring', expected: 'Monitoring tools configured' },
+          { action: 'Execute performance scenario', expected: 'Load generated successfully' },
+          { action: 'Measure response times', expected: 'Response times within acceptable limits' },
+          { action: 'Check resource utilization', expected: 'CPU/Memory usage within thresholds' }
+        ],
+        expectedResult: 'System meets performance requirements'
+      },
+      security: {
+        title: 'New Security Test Case',
+        objective: 'Validate security controls and vulnerabilities',
+        preconditions: 'Test user accounts with various permission levels',
+        priority: 'Critical',
+        testType: 'security',
+        securityChecks: {
+          authentication: false,
+          authorization: false,
+          dataProtection: false,
+          inputValidation: false
+        },
+        steps: [
+          { action: 'Test authentication mechanisms', expected: 'Authentication properly enforced' },
+          { action: 'Verify authorization controls', expected: 'Access control working correctly' },
+          { action: 'Check for common vulnerabilities', expected: 'No vulnerabilities detected' },
+          { action: 'Validate data encryption', expected: 'Sensitive data properly encrypted' }
+        ],
+        expectedResult: 'System passes security validation'
+      },
+      accessibility: {
+        title: 'New Accessibility Test Case',
+        objective: 'Ensure compliance with WCAG 2.1 standards',
+        preconditions: 'Screen reader and accessibility tools available',
+        priority: 'High',
+        testType: 'accessibility',
+        wcagLevel: 'AA',
+        accessibilityChecks: {
+          screenReader: false,
+          keyboardNavigation: false,
+          colorContrast: false,
+          altText: false
+        },
+        steps: [
+          { action: 'Test with screen reader', expected: 'All content readable and navigable' },
+          { action: 'Verify keyboard navigation', expected: 'All interactive elements accessible via keyboard' },
+          { action: 'Check color contrast ratios', expected: 'Meets WCAG contrast requirements' },
+          { action: 'Validate ARIA labels', expected: 'Proper ARIA attributes present' }
+        ],
+        expectedResult: 'Meets accessibility standards'
+      }
+    };
+    return templates[testType] || templates.functional;
+  };
 
   // Auto-fill from JIRA navigation
   useEffect(() => {
@@ -235,13 +318,77 @@ export default function TestGenerator() {
             </div>
           )}
           
-          <button
-            onClick={() => generateMutation.mutate()}
-            disabled={!ticket.summary || generateMutation.isPending}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
-          >
-            {generateMutation.isPending ? 'Generating...' : 'Generate Test Cases with AI'}
-          </button>
+          {/* Test Type Selection for Generation */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Test Types to Generate
+            </label>
+            <div className="flex flex-wrap gap-3">
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  defaultChecked
+                  id="gen-functional"
+                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span className="ml-2 text-sm">Functional</span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  id="gen-performance"
+                  className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                />
+                <span className="ml-2 text-sm">Performance</span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  id="gen-security"
+                  className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                />
+                <span className="ml-2 text-sm">Security</span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  id="gen-accessibility"
+                  className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                />
+                <span className="ml-2 text-sm">Accessibility</span>
+              </label>
+            </div>
+          </div>
+          
+          <div className="flex gap-3">
+            <button
+              onClick={() => {
+                const testTypes = [];
+                if (document.getElementById('gen-functional').checked) testTypes.push('functional');
+                if (document.getElementById('gen-performance').checked) testTypes.push('performance');
+                if (document.getElementById('gen-security').checked) testTypes.push('security');
+                if (document.getElementById('gen-accessibility').checked) testTypes.push('accessibility');
+                
+                if (testTypes.length === 0) {
+                  toast.error('Please select at least one test type');
+                  return;
+                }
+                
+                generateMutation.mutate(testTypes);
+              }}
+              disabled={!ticket.summary || generateMutation.isPending}
+              className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {generateMutation.isPending ? 'Generating...' : 'Generate Test Cases with AI'}
+            </button>
+            
+            <button
+              onClick={() => setShowTestTypeModal(true)}
+              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+            >
+              + Add Manual Test Case
+            </button>
+          </div>
         </div>
       </div>
 
@@ -269,16 +416,28 @@ export default function TestGenerator() {
               {testCases.map((tc, index) => (
                 <div key={index} className="border p-4 rounded">
                   <div className="flex justify-between items-start mb-2">
-                    <input
-                      type="text"
-                      value={tc.title}
-                      onChange={(e) => {
-                        const updated = [...testCases];
-                        updated[index].title = e.target.value;
-                        setTestCases(updated);
-                      }}
-                      className="font-medium text-indigo-600 bg-transparent border-b border-transparent hover:border-indigo-300 focus:border-indigo-500 focus:outline-none flex-1 mr-2"
-                    />
+                    <div className="flex-1">
+                      <input
+                        type="text"
+                        value={tc.title}
+                        onChange={(e) => {
+                          const updated = [...testCases];
+                          updated[index].title = e.target.value;
+                          setTestCases(updated);
+                        }}
+                        className="font-medium text-indigo-600 bg-transparent border-b border-transparent hover:border-indigo-300 focus:border-indigo-500 focus:outline-none w-full"
+                      />
+                      {tc.testType && tc.testType !== 'functional' && (
+                        <span className={`inline-block mt-1 text-xs px-2 py-1 rounded ${
+                          tc.testType === 'performance' ? 'bg-green-100 text-green-700' :
+                          tc.testType === 'security' ? 'bg-red-100 text-red-700' :
+                          tc.testType === 'accessibility' ? 'bg-purple-100 text-purple-700' :
+                          'bg-gray-100 text-gray-700'
+                        }`}>
+                          {tc.testType.charAt(0).toUpperCase() + tc.testType.slice(1)} Test
+                        </span>
+                      )}
+                    </div>
                     <select
                       value={tc.priority || 'Medium'}
                       onChange={(e) => {
@@ -286,12 +445,13 @@ export default function TestGenerator() {
                         updated[index].priority = e.target.value;
                         setTestCases(updated);
                       }}
-                      className={`text-xs px-2 py-1 rounded border ${
-                        tc.priority === 'High' ? 'bg-red-100 text-red-700 border-red-300' :
+                      className={`text-xs px-2 py-1 rounded border ml-2 ${
+                        tc.priority === 'High' || tc.priority === 'Critical' ? 'bg-red-100 text-red-700 border-red-300' :
                         tc.priority === 'Low' ? 'bg-gray-100 text-gray-700 border-gray-300' :
                         'bg-yellow-100 text-yellow-700 border-yellow-300'
                       }`}
                     >
+                      <option value="Critical">Critical</option>
                       <option value="High">High</option>
                       <option value="Medium">Medium</option>
                       <option value="Low">Low</option>
@@ -312,6 +472,98 @@ export default function TestGenerator() {
                         rows={2}
                       />
                     </div>
+                    
+                    {/* Performance Test Specific Fields */}
+                    {tc.testType === 'performance' && tc.metrics && (
+                      <div className="bg-green-50 p-2 rounded">
+                        <label className="text-xs font-medium text-gray-500">Performance Metrics:</label>
+                        <div className="grid grid-cols-3 gap-2 mt-1">
+                          <input
+                            type="text"
+                            placeholder="Response Time (ms)"
+                            value={tc.metrics.responseTime || ''}
+                            onChange={(e) => {
+                              const updated = [...testCases];
+                              updated[index].metrics.responseTime = e.target.value;
+                              setTestCases(updated);
+                            }}
+                            className="text-xs p-1 border rounded"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Throughput (req/s)"
+                            value={tc.metrics.throughput || ''}
+                            onChange={(e) => {
+                              const updated = [...testCases];
+                              updated[index].metrics.throughput = e.target.value;
+                              setTestCases(updated);
+                            }}
+                            className="text-xs p-1 border rounded"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Resource Usage (%)"
+                            value={tc.metrics.resourceUsage || ''}
+                            onChange={(e) => {
+                              const updated = [...testCases];
+                              updated[index].metrics.resourceUsage = e.target.value;
+                              setTestCases(updated);
+                            }}
+                            className="text-xs p-1 border rounded"
+                          />
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Security Test Specific Fields */}
+                    {tc.testType === 'security' && tc.securityChecks && (
+                      <div className="bg-red-50 p-2 rounded">
+                        <label className="text-xs font-medium text-gray-500">Security Checks:</label>
+                        <div className="grid grid-cols-2 gap-2 mt-1">
+                          {Object.keys(tc.securityChecks).map(check => (
+                            <label key={check} className="flex items-center text-xs">
+                              <input
+                                type="checkbox"
+                                checked={tc.securityChecks[check]}
+                                onChange={(e) => {
+                                  const updated = [...testCases];
+                                  updated[index].securityChecks[check] = e.target.checked;
+                                  setTestCases(updated);
+                                }}
+                                className="mr-1"
+                              />
+                              {check.replace(/([A-Z])/g, ' $1').trim()}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Accessibility Test Specific Fields */}
+                    {tc.testType === 'accessibility' && tc.accessibilityChecks && (
+                      <div className="bg-purple-50 p-2 rounded">
+                        <label className="text-xs font-medium text-gray-500">
+                          Accessibility Checks (WCAG {tc.wcagLevel || 'AA'}):
+                        </label>
+                        <div className="grid grid-cols-2 gap-2 mt-1">
+                          {Object.keys(tc.accessibilityChecks).map(check => (
+                            <label key={check} className="flex items-center text-xs">
+                              <input
+                                type="checkbox"
+                                checked={tc.accessibilityChecks[check]}
+                                onChange={(e) => {
+                                  const updated = [...testCases];
+                                  updated[index].accessibilityChecks[check] = e.target.checked;
+                                  setTestCases(updated);
+                                }}
+                                className="mr-1"
+                              />
+                              {check.replace(/([A-Z])/g, ' $1').trim()}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     
                     <div>
                       <label className="text-xs font-medium text-gray-500">Preconditions:</label>
@@ -415,16 +667,7 @@ export default function TestGenerator() {
             </div>
             
             <button
-              onClick={() => {
-                setTestCases([...testCases, {
-                  title: 'New Test Case',
-                  objective: '',
-                  preconditions: '',
-                  priority: 'Medium',
-                  steps: [{ action: '', expected: '' }],
-                  expectedResult: ''
-                }]);
-              }}
+              onClick={() => setShowTestTypeModal(true)}
               className="mt-3 text-sm text-indigo-600 hover:text-indigo-800"
             >
               + Add New Test Case
@@ -576,6 +819,62 @@ export default function TestGenerator() {
             )}
           </div>
         </>
+      )}
+
+      {/* Test Type Selection Modal */}
+      {showTestTypeModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <h3 className="text-lg font-semibold mb-4">Select Test Type</h3>
+            <div className="space-y-3">
+              <button
+                onClick={() => {
+                  setTestCases([...testCases, getTestCaseTemplate('functional')]);
+                  setShowTestTypeModal(false);
+                }}
+                className="w-full text-left p-4 border rounded-lg hover:bg-gray-50">
+                <div className="font-medium text-indigo-600">Functional Test</div>
+                <div className="text-sm text-gray-600 mt-1">Verify feature functionality and behavior</div>
+              </button>
+              
+              <button
+                onClick={() => {
+                  setTestCases([...testCases, getTestCaseTemplate('performance')]);
+                  setShowTestTypeModal(false);
+                }}
+                className="w-full text-left p-4 border rounded-lg hover:bg-gray-50">
+                <div className="font-medium text-green-600">Performance Test</div>
+                <div className="text-sm text-gray-600 mt-1">Measure response times, throughput, and resource usage</div>
+              </button>
+              
+              <button
+                onClick={() => {
+                  setTestCases([...testCases, getTestCaseTemplate('security')]);
+                  setShowTestTypeModal(false);
+                }}
+                className="w-full text-left p-4 border rounded-lg hover:bg-gray-50">
+                <div className="font-medium text-red-600">Security Test</div>
+                <div className="text-sm text-gray-600 mt-1">Validate authentication, authorization, and data protection</div>
+              </button>
+              
+              <button
+                onClick={() => {
+                  setTestCases([...testCases, getTestCaseTemplate('accessibility')]);
+                  setShowTestTypeModal(false);
+                }}
+                className="w-full text-left p-4 border rounded-lg hover:bg-gray-50">
+                <div className="font-medium text-purple-600">Accessibility Test</div>
+                <div className="text-sm text-gray-600 mt-1">Ensure WCAG compliance and screen reader compatibility</div>
+              </button>
+            </div>
+            
+            <button
+              onClick={() => setShowTestTypeModal(false)}
+              className="mt-4 w-full px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300">
+              Cancel
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

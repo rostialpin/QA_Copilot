@@ -9,6 +9,7 @@ import playwrightRouter from './playwright.routes.js';
 import domAnalyzerRouter from './domAnalyzer.routes.js';
 import smartTestGeneratorRouter from './smartTestGenerator.routes.js';
 import aiRouter from './ai.routes.js';
+import patternLearningRouter from './patternLearning.routes.js';
 
 export const router = express.Router();
 
@@ -28,3 +29,4 @@ router.use('/playwright', playwrightRouter);
 router.use('/dom-analyzer', domAnalyzerRouter);
 router.use('/smart-test', smartTestGeneratorRouter);
 router.use('/ai', aiRouter);
+router.use('/pattern-learning', patternLearningRouter);

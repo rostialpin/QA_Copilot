@@ -2,7 +2,7 @@ import { logger } from '../utils/logger.js';
 import { filterJiraTicket } from '../config/fieldFilter.config.js';
 import { JiraService } from './jiraService.js';
 import { TestRailService } from './testRailService.js';
-import { GeminiService } from './geminiService.js';
+import geminiService from './geminiService.js';
 import { CypressGenerator } from './cypressGenerator.js';
 import patternLearningService from './patternLearningService.js';
 
@@ -15,7 +15,7 @@ export class WorkflowOrchestrator {
     this.workflows = new Map(); // Store active workflows
     this.jiraService = new JiraService();
     this.testRailService = new TestRailService();
-    this.geminiService = new GeminiService();
+    this.geminiService = geminiService; // Use the singleton instance
     this.cypressGenerator = new CypressGenerator();
   }
 
@@ -166,21 +166,20 @@ export class WorkflowOrchestrator {
   /**
    * Execute Step 3: Generate test cases with AI
    */
-  async generateTests(workflowId, options = {}) {
+  async generateTests(workflowId, data = {}) {
     const workflow = this.workflows.get(workflowId);
     if (!workflow) throw new Error('Workflow not found');
     
     try {
       logger.info(`Step 3: Generating tests for workflow ${workflowId}`);
       
-      // Get ticket and context from options if provided directly (optimized path)
-      // Otherwise fall back to workflow steps (legacy path)
+      // Extract ticket and context from data
       let ticket, context;
       
-      if (options.ticket && options.context) {
+      if (data.ticket && data.context) {
         // Direct data provided - skip workflow step lookups
-        ticket = options.ticket;
-        context = options.context;
+        ticket = data.ticket;
+        context = data.context;
         
         // Store in workflow for consistency
         if (!workflow.steps[1].data) {
@@ -198,14 +197,23 @@ export class WorkflowOrchestrator {
         context = workflow.steps[2].data;
       }
       
-      // Prepare generation options with patterns
+      // Extract all options from data (they're spread at the root level now)
+      const {
+        ticket: _ticket, // already extracted
+        context: _context, // already extracted
+        ...restOptions
+      } = data;
+      
+      // Create a clean options object for Gemini
       const generationOptions = {
-        ...options,
+        ...restOptions,
         patterns: context.patterns,
         examples: context.examples,
         platforms: ticket.platforms,
         testRequirements: ticket.testRequirements
       };
+      
+      logger.info(`Generation options passed to Gemini: includePerformance=${generationOptions.includePerformance}, includeSecurity=${generationOptions.includeSecurity}, includeAccessibility=${generationOptions.includeAccessibility}, testTypes=${JSON.stringify(generationOptions.testTypes)}, testCount=${generationOptions.testCount}, coverageLevel=${generationOptions.coverageLevel}`);
       
       // Generate test cases using AI with context
       logger.info(`Calling Gemini service to generate tests for ticket: ${ticket.key}`);

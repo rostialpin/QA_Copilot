@@ -6,7 +6,8 @@ import {
   FolderOpenIcon,
   Cog6ToothIcon,
   SparklesIcon,
-  RocketLaunchIcon
+  RocketLaunchIcon,
+  CursorArrowRaysIcon
 } from '@heroicons/react/24/outline';
 import Logo from './Logo';
 
@@ -15,6 +16,7 @@ export default function Layout() {
     { name: 'Sprint Dashboard', href: '/', icon: HomeIcon, color: 'text-blue-600' },
     { name: 'Create Test Cases', href: '/workflow', icon: SparklesIcon, color: 'text-purple-600' },
     { name: 'Automate Tests', href: '/automate-tests', icon: RocketLaunchIcon, color: 'text-green-600' },
+    { name: 'Locator Training', href: '/locator-training', icon: CursorArrowRaysIcon, color: 'text-indigo-600' },
     { name: 'TestRail', href: '/testrail', icon: FolderOpenIcon, color: 'text-orange-600' },
     { name: 'Settings', href: '/settings', icon: Cog6ToothIcon, color: 'text-gray-600' },
   ];

@@ -247,14 +247,20 @@ export default function TestReviewer({ tests, onReview, reviewed, onSkipToAutoma
                 {/* Test Info */}
                 <div className="mt-2 flex gap-4 text-xs">
                   <span className={`px-2 py-1 rounded ${
-                    test.priority === 'High' ? 'bg-red-100 text-red-700' :
+                    test.priority === 'Critical' ? 'bg-red-100 text-red-700' :
+                    test.priority === 'High' ? 'bg-amber-100 text-amber-700' :
                     test.priority === 'Low' ? 'bg-gray-100 text-gray-700' :
                     'bg-yellow-100 text-yellow-700'
                   }`}>
                     {test.priority || 'Medium'} Priority
                   </span>
-                  <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded">
-                    {test.type || 'Functional'}
+                  <span className={`px-2 py-1 rounded ${
+                    test.testType === 'performance' ? 'bg-green-100 text-green-700' :
+                    test.testType === 'security' ? 'bg-red-100 text-red-700' :
+                    test.testType === 'accessibility' ? 'bg-purple-100 text-purple-700' :
+                    'bg-blue-100 text-blue-700'
+                  }`}>
+                    {test.testType ? test.testType.charAt(0).toUpperCase() + test.testType.slice(1) : test.type || 'Functional'}
                   </span>
                   {test.estimate && (
                     <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded">

@@ -26,8 +26,9 @@ export class ClaudeService {
 
   async setModel(modelName) {
     const validModels = [
-      'claude-3-opus-20240229',
+      'claude-opus-4-1-20250805',
       'claude-3-5-sonnet-20241022',
+      'claude-3-opus-20240229',
       'claude-3-haiku-20240307'
     ];
     

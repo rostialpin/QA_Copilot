@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import { router as apiRouter } from './src/routes/index.js';
 import configRoutes from './src/routes/configRoutes.js';
+import codebaseRoutes from './src/routes/codebaseRoutes.js';
 import { errorHandler } from './src/middleware/errorHandler.js';
 import { logger } from './src/utils/logger.js';
 import { initDatabase } from './src/utils/database.js';
@@ -57,6 +58,7 @@ app.get('/health', (req, res) => {
 // API Routes
 app.use('/api', apiRouter);
 app.use('/api/config', configRoutes);
+app.use('/api/codebase', codebaseRoutes);
 
 // Error handling
 app.use(errorHandler);

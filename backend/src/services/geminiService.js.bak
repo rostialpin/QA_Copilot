@@ -280,7 +280,6 @@ export class GeminiService {
           testData: this.generateTestData(ticket)
         },
         {
-          testType: 'functional',
           title: `User Acceptance: ${ticket.summary}`,
           objective: `Verify feature meets user acceptance criteria and business requirements`,
           preconditions: `UAT environment configured. ${this.extractPreconditions(ticket)}`,

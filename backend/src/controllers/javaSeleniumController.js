@@ -139,7 +139,7 @@ export class JavaSeleniumController {
    */
   async generateTestWithGemini(req, res, next) {
     try {
-      const { manualTest, repoPath, testDirectory, ticket } = req.body;
+      const { manualTest, repoPath, testDirectory, ticket, propertiesPath, applicationUrl, domElements } = req.body;
       
       if (!manualTest) {
         return res.status(400).json({ 
@@ -150,11 +150,14 @@ export class JavaSeleniumController {
       // Import Gemini service
       const { geminiService } = await import('../services/geminiService.js');
       
-      // Learn from element properties if repository path is provided
+      // Learn from element properties if properties path or repository path is provided
       let elementPatterns = null;
-      if (repoPath) {
+      if (propertiesPath) {
+        elementPatterns = await geminiService.learnFromElementProperties(propertiesPath);
+        logger.info('Learned element patterns from properties file:', propertiesPath);
+      } else if (repoPath) {
         elementPatterns = await geminiService.learnFromElementProperties(repoPath);
-        logger.info('Learned element patterns for automation generation');
+        logger.info('Learned element patterns from repository');
       }
 
       // Generate automation code using Gemini with element patterns
@@ -170,7 +173,9 @@ export class JavaSeleniumController {
         { 
           elementPatterns,
           repositoryPath: repoPath,
-          testDirectory
+          testDirectory,
+          applicationUrl,
+          domElements
         }
       );
       

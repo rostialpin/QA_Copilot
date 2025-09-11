@@ -305,8 +305,8 @@ export default function Dashboard() {
                 )}
               </>
             ) : (
-              <div className="text-sm text-yellow-600">
-                ⚠️ No active sprint - showing recent project tickets
+              <div className="text-sm text-gray-600">
+                Showing recent project tickets
               </div>
             )}
             {selectedProject?.includes('WCTV') && allIssues?.find(t => t.key === 'ESWCTV-1124') && (

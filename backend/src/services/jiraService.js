@@ -718,14 +718,21 @@ export class JiraService {
     try {
       let url = `/rest/agile/1.0/board?maxResults=${maxResults}`;
       if (projectKeyOrId) {
-        url += `&projectKeyOrId=${projectKeyOrId}`;
+        // Try with project parameter if provided
+        url = `/rest/agile/1.0/board?maxResults=${maxResults}&projectKeyOrId=${projectKeyOrId}&type=scrum`;
       }
+      
+      logger.info(`Fetching boards from: ${this.baseURL}${url}`);
+      logger.info(`Using email: ${this.email}`);
       
       const data = await this.makeRequest(url);
       return data.values || [];
     } catch (error) {
-      logger.error('Error fetching boards:', error.message);
-      throw error;
+      logger.warn(`Boards API failed (${error.message}), returning empty array`);
+      logger.info('This might be a permissions issue - user may not have access to JIRA Software features');
+      
+      // Return empty array instead of throwing, let frontend handle fallback
+      return [];
     }
   }
 

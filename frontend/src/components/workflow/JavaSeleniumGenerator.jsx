@@ -3,11 +3,14 @@ import {
   Code, Loader2, FolderOpen, Save, 
   GitBranch, ExternalLink, CheckCircle, 
   AlertCircle, FolderTree, FileCode, Copy, X, Zap,
-  ChevronRight, ChevronDown, Folder
+  ChevronRight, ChevronDown, Folder, Globe, Search,
+  Database, Brain
 } from 'lucide-react';
 import axios from 'axios';
 import SuccessAnimation from '../SuccessAnimation';
 import AIModelSelector from './AIModelSelector';
+import PageObjectSelector from './PageObjectSelector';
+import SimilarTestsViewer from './SimilarTestsViewer';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -28,6 +31,7 @@ export default function JavaSeleniumGenerator({
   const [directoryTree, setDirectoryTree] = useState([]);
   const [selectedDirectory, setSelectedDirectory] = useState('');
   const [isLoadingTree, setIsLoadingTree] = useState(false);
+  const [propertiesPath, setPropertiesPath] = useState(localStorage.getItem('lastPropertiesPath') || '');
   
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedTest, setGeneratedTest] = useState(generatedCode || null);
@@ -44,6 +48,21 @@ export default function JavaSeleniumGenerator({
   const [showPathInstructions, setShowPathInstructions] = useState(false);
   const [expandedNodes, setExpandedNodes] = useState(new Set());
   const [showSuccessAnimation, setShowSuccessAnimation] = useState(false);
+  
+  // DOM Analysis states
+  const [applicationUrl, setApplicationUrl] = useState(localStorage.getItem('lastApplicationUrl') || '');
+  const [isAnalyzingDom, setIsAnalyzingDom] = useState(false);
+  const [domElements, setDomElements] = useState(null);
+  const [domAnalysisSuccess, setDomAnalysisSuccess] = useState('');
+  
+  // Intelligent indexing states
+  const [isIndexed, setIsIndexed] = useState(false);
+  const [isIndexing, setIsIndexing] = useState(false);
+  const [indexStats, setIndexStats] = useState(null);
+  const [selectedPageObjects, setSelectedPageObjects] = useState([]);
+  const [similarTests, setSimilarTests] = useState([]);
+  const [extractedPatterns, setExtractedPatterns] = useState(null);
+  const [showIntelligentMode, setShowIntelligentMode] = useState(true);
 
   // Validate repository when path changes
   useEffect(() => {
@@ -87,6 +106,8 @@ export default function JavaSeleniumGenerator({
         localStorage.setItem('lastRepoPath', repoPath);
         // Load directory tree after successful validation
         await loadDirectoryTree();
+        // Check if repository is indexed
+        await checkIndexStatus();
       } else {
         setIsValidRepo(false);
         setValidationError(response.data.error || 'Invalid repository. Please ensure the path exists and contains Java files.');
@@ -100,6 +121,76 @@ export default function JavaSeleniumGenerator({
       );
     } finally {
       setIsValidating(false);
+    }
+  };
+
+  const checkIndexStatus = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/api/codebase/status`, {
+        params: { repoPath: repoPath.trim() }
+      });
+      
+      setIsIndexed(response.data.indexed);
+      if (response.data.indexed) {
+        setIndexStats(response.data.stats);
+      }
+    } catch (error) {
+      console.error('Error checking index status:', error);
+      setIsIndexed(false);
+    }
+  };
+  
+  const indexRepository = async () => {
+    setIsIndexing(true);
+    setValidationError('');
+    
+    try {
+      const response = await axios.post(`${API_URL}/api/codebase/index`, {
+        repoPath: repoPath.trim(),
+        forceReindex: false
+      });
+      
+      setIsIndexed(true);
+      setIndexStats(response.data.stats);
+      return true;
+    } catch (error) {
+      console.error('Error indexing repository:', error);
+      setValidationError('Failed to index repository');
+      return false;
+    } finally {
+      setIsIndexing(false);
+    }
+  };
+  
+  const analyzeDom = async () => {
+    if (!applicationUrl) {
+      setValidationError('Please enter a URL to analyze');
+      return;
+    }
+    
+    setIsAnalyzingDom(true);
+    setValidationError('');
+    
+    try {
+      const response = await axios.post(`${API_URL}/api/java-selenium/test-dom`, {
+        url: applicationUrl
+      });
+      
+      setDomElements(response.data);
+      localStorage.setItem('lastApplicationUrl', applicationUrl);
+      console.log('DOM Analysis Results:', response.data);
+      
+      // Show success message
+      if (response.data.totalElements) {
+        setValidationError('');
+        // Set a success message to show DOM was analyzed
+        setDomAnalysisSuccess(`✓ DOM analyzed successfully: Found ${response.data.totalElements} elements (${response.data.buttons || 0} buttons, ${response.data.inputs || 0} inputs, ${response.data.links || 0} links)`);
+      }
+    } catch (error) {
+      console.error('Error analyzing DOM:', error);
+      setValidationError('Failed to analyze DOM. Please check the URL and try again.');
+    } finally {
+      setIsAnalyzingDom(false);
     }
   };
 
@@ -165,8 +256,14 @@ export default function JavaSeleniumGenerator({
       // Use the first test for now (can be enhanced to handle multiple)
       const manualTest = tests[0];
       
-      // Step 1: Index the repository
+      // Step 1: Index the repository if not already indexed
       setGenerationStep('indexing');
+      if (!isIndexed) {
+        const indexed = await indexRepository();
+        if (!indexed) {
+          throw new Error('Failed to index repository. Please try again.');
+        }
+      }
       
       // Step 2: Learn patterns from the selected directory
       setGenerationStep('learning');
@@ -191,7 +288,13 @@ export default function JavaSeleniumGenerator({
         manualTest,
         repoPath,
         testDirectory: selectedDirectory,
-        ticket: manualTest.ticket || null
+        ticket: manualTest.ticket || null,
+        propertiesPath: propertiesPath || null,
+        applicationUrl: applicationUrl || null,
+        domElements: domElements || null,
+        pageObjects: selectedPageObjects || [],
+        similarTests: similarTests || [],
+        patterns: extractedPatterns || null
       });
       
       if (!response.data.test || !response.data.test.code) {
@@ -342,6 +445,28 @@ export default function JavaSeleniumGenerator({
         />
       </div>
 
+      {/* Intelligent Mode Toggle */}
+      <div className="bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-lg p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Brain className="h-5 w-5 text-indigo-600" />
+            <div>
+              <h4 className="font-medium text-gray-900">Intelligent Test Generation</h4>
+              <p className="text-xs text-gray-600">Powered by Voyage AI • Learns from your codebase</p>
+            </div>
+          </div>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={showIntelligentMode}
+              onChange={(e) => setShowIntelligentMode(e.target.checked)}
+              className="rounded text-indigo-600"
+            />
+            <span className="text-sm">Enable AI Analysis</span>
+          </label>
+        </div>
+      </div>
+
       {/* Repository Path Input */}
       <div>
         <div className="flex items-center justify-between mb-2">
@@ -449,6 +574,82 @@ export default function JavaSeleniumGenerator({
           </p>
         )}
       </div>
+
+      {/* Repository Indexing Status */}
+      {isValidRepo && showIntelligentMode && (
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Database className="h-5 w-5 text-gray-600" />
+              <span className="font-medium text-gray-900">Repository Index</span>
+            </div>
+            {isIndexed ? (
+              <div className="flex items-center gap-2">
+                <CheckCircle className="h-4 w-4 text-green-600" />
+                <span className="text-sm text-green-700">
+                  Indexed • {indexStats?.totalFiles || 0} files • {indexStats?.pageObjects || 0} Page Objects
+                </span>
+                <button
+                  onClick={indexRepository}
+                  disabled={isIndexing}
+                  className="text-xs text-indigo-600 hover:text-indigo-700 ml-2"
+                >
+                  Re-index
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={indexRepository}
+                disabled={isIndexing}
+                className="px-3 py-1 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2"
+              >
+                {isIndexing ? (
+                  <>
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Indexing...
+                  </>
+                ) : (
+                  <>
+                    <Database className="h-3 w-3" />
+                    Index Repository
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+          {isIndexing && (
+            <div className="mt-3">
+              <div className="text-xs text-gray-600 mb-1">Analyzing code with Voyage AI...</div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div className="bg-indigo-600 h-2 rounded-full animate-pulse" style={{ width: '60%' }}></div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Intelligent Components - Similar Tests & Page Objects */}
+      {isValidRepo && showIntelligentMode && isIndexed && tests && tests.length > 0 && (
+        <div className="space-y-4">
+          {/* Similar Tests Viewer */}
+          <SimilarTestsViewer
+            repoPath={repoPath}
+            testScenario={tests[0]?.description || tests[0]?.steps?.join(' ')}
+            onTestsFound={(foundTests, patterns) => {
+              setSimilarTests(foundTests);
+              setExtractedPatterns(patterns);
+            }}
+          />
+          
+          {/* Page Object Selector */}
+          <PageObjectSelector
+            repoPath={repoPath}
+            testScenario={tests[0]?.description || tests[0]?.steps?.join(' ')}
+            onPageObjectsSelected={setSelectedPageObjects}
+            selectedPageObjects={selectedPageObjects}
+          />
+        </div>
+      )}
 
       {/* Directory Browser */}
       {isValidRepo && (
@@ -571,9 +772,129 @@ export default function JavaSeleniumGenerator({
         </div>
       )}
 
+      {/* Application URL for DOM Analysis */}
+      <div className="mt-4">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          <Globe className="inline h-4 w-4 mr-1" />
+          Application URL
+          <span className="text-xs text-gray-500 ml-2">
+            Analyze actual DOM to identify real locators
+          </span>
+        </label>
+        <div className="flex gap-2">
+          <input
+            type="url"
+            value={applicationUrl}
+            onChange={(e) => {
+              setApplicationUrl(e.target.value);
+              if (e.target.value) {
+                localStorage.setItem('lastApplicationUrl', e.target.value);
+              }
+            }}
+            placeholder="https://example.com/login"
+            className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+          />
+          <button
+            onClick={analyzeDom}
+            disabled={!applicationUrl || isAnalyzingDom}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            {isAnalyzingDom ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Analyzing...
+              </>
+            ) : (
+              <>
+                <Search className="h-4 w-4" />
+                Analyze DOM
+              </>
+            )}
+          </button>
+          {applicationUrl && !isAnalyzingDom && (
+            <button
+              onClick={() => {
+                setApplicationUrl('');
+                setDomElements(null);
+                localStorage.removeItem('lastApplicationUrl');
+              }}
+              className="px-3 py-2 bg-gray-100 text-gray-600 rounded-md hover:bg-gray-200"
+              title="Clear URL"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+        
+        {/* DOM Analysis Results */}
+        {domElements && (
+          <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+            <div className="text-sm text-green-900">
+              <p className="font-medium mb-1">✅ DOM Analysis Complete</p>
+              <div className="text-xs text-green-700 space-y-1">
+                <p>• Found {domElements.totalElements} interactive elements</p>
+                <p>• {domElements.buttons || 0} buttons</p>
+                <p>• {domElements.inputs || 0} input fields</p>
+                <p>• {domElements.links || 0} links</p>
+                {domElements.elementsWithTestId > 0 && (
+                  <p className="text-green-800 font-medium">
+                    • {domElements.elementsWithTestId} elements with test IDs (excellent for automation!)
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+        
+        <p className="text-xs text-gray-500 mt-1">
+          🎯 The AI will use real DOM structure to generate accurate locators
+        </p>
+      </div>
+
+      {/* Properties File Path for Locator Training */}
+      {isValidRepo && (
+        <div className="mt-4">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Properties File Path (Optional)
+            <span className="text-xs text-gray-500 ml-2">
+              For training AI on existing locators
+            </span>
+          </label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={propertiesPath}
+              onChange={(e) => {
+                setPropertiesPath(e.target.value);
+                if (e.target.value) {
+                  localStorage.setItem('lastPropertiesPath', e.target.value);
+                }
+              }}
+              placeholder="e.g., src/main/resources/locators.properties"
+              className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+            />
+            {propertiesPath && (
+              <button
+                onClick={() => {
+                  setPropertiesPath('');
+                  localStorage.removeItem('lastPropertiesPath');
+                }}
+                className="px-3 py-2 bg-gray-100 text-gray-600 rounded-md hover:bg-gray-200"
+                title="Clear properties path"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            💡 Provide the path to your properties file containing page object locators
+          </p>
+        </div>
+      )}
+
       {/* Action Buttons Section */}
       {isValidRepo && !generatedTest && (
-        <div className="border-t pt-4">
+        <div className="border-t pt-4 mt-4">
           {!selectedDirectory ? (
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
               <div className="flex items-start gap-2">

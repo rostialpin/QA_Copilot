@@ -1,62 +1,66 @@
 #!/bin/bash
 
-# Test script for enhanced Java Selenium generation with AI model switching
+echo "Testing Enhanced Test Generation with Comprehensive Coverage"
+echo "============================================================"
 
-API_URL="http://localhost:3001"
-echo "Testing QA Copilot Enhanced Generation Flow"
-echo "==========================================="
-
-# Test 1: Check AI Status
-echo -e "\n1. Checking AI Service Status..."
-curl -s "$API_URL/api/ai/status" | jq '.'
-
-# Test 2: Switch to Claude (if API key is available)
-echo -e "\n2. Testing provider switching..."
-curl -s -X POST "$API_URL/api/ai/provider" \
+# First, start a workflow
+echo -e "\n1. Starting workflow..."
+WORKFLOW_RESPONSE=$(curl -s -X POST http://localhost:3001/api/workflow/start \
   -H "Content-Type: application/json" \
-  -d '{"provider": "claude"}' | jq '.'
+  -d '{"userId": "test-user"}')
 
-# Switch back to Gemini 
-curl -s -X POST "$API_URL/api/ai/provider" \
-  -H "Content-Type: application/json" \
-  -d '{"provider": "gemini"}' | jq '.'
+WORKFLOW_ID=$(echo "$WORKFLOW_RESPONSE" | jq -r '.workflow.id')
+echo "Workflow ID: $WORKFLOW_ID"
 
-# Test 3: Test DOM Analysis
-echo -e "\n3. Testing DOM Analysis..."
-curl -s -X POST "$API_URL/api/java-selenium/test-dom-analysis" \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://www.example.com"}' | jq '.success, .totalElements'
-
-# Test 4: Test Enhanced Generation
-echo -e "\n4. Testing Enhanced Selenium Generation..."
-curl -s -X POST "$API_URL/api/java-selenium/generate-enhanced" \
+# Now generate tests with comprehensive coverage
+echo -e "\n2. Generating tests with comprehensive coverage..."
+TEST_RESPONSE=$(curl -s -X POST "http://localhost:3001/api/workflow/$WORKFLOW_ID/step" \
   -H "Content-Type: application/json" \
   -d '{
-    "manualTest": {
-      "name": "Test Login Flow",
-      "description": "Verify user can login successfully",
-      "steps": [
-        {"action": "Navigate to login page", "expectedResult": "Login page loads"},
-        {"action": "Enter username", "expectedResult": "Username field accepts input"},
-        {"action": "Enter password", "expectedResult": "Password field accepts input"},
-        {"action": "Click login button", "expectedResult": "User is logged in successfully"}
-      ]
-    },
-    "options": {
-      "url": "https://example.com/login",
-      "useEnhancedGeneration": true
+    "step": "generateTests",
+    "data": {
+      "ticket": {
+        "key": "PARA-12345",
+        "summary": "Implement password reset functionality",
+        "description": "As a user, I want to reset my password when I forget it. The system should send a reset link to my registered email.",
+        "type": "Story",
+        "acceptanceCriteria": "User can request password reset. Email with reset link is sent.",
+        "qaScenarios": ["Verify password reset email is sent", "Verify link expiration after 24 hours"]
+      },
+      "context": {
+        "patterns": [],
+        "examples": []
+      },
+      "testCount": 10,
+      "coverageLevel": "comprehensive",
+      "includePerformance": true,
+      "includeSecurity": true,
+      "includeAccessibility": true,
+      "testTypes": ["functional", "performance", "security", "accessibility"]
     }
-  }' | jq '.success, .fileName'
+  }')
 
-echo -e "\n✅ Enhanced generation flow test complete!"
-echo "==========================================="
-echo "Summary:"
-echo "- AI Service: Working with model switching"
-echo "- DOM Analysis: Functional with Puppeteer"
-echo "- Enhanced Generation: Ready with multi-strategy locators"
-echo ""
-echo "You can now:"
-echo "1. Open http://localhost:5173 in your browser"
-echo "2. Navigate to the Java Selenium Generator"
-echo "3. Use the AI model selector to switch between Gemini and Claude"
-echo "4. Generate tests with enhanced locator strategies"
+# Count the tests
+TEST_COUNT=$(echo "$TEST_RESPONSE" | jq '.tests | length')
+echo "Total tests generated: $TEST_COUNT"
+
+# Show test titles and types
+echo -e "\n3. Test details:"
+echo "$TEST_RESPONSE" | jq -r '.tests[] | "  - \(.title) [\(.testType // "functional")]"'
+
+# Summary
+echo -e "\n============================================================"
+if [ "$TEST_COUNT" -ge 10 ]; then
+  echo "✅ SUCCESS: Generated $TEST_COUNT tests"
+  echo "   Expected: 10+ tests (10 functional + non-functional)"
+else
+  echo "❌ FAILURE: Only generated $TEST_COUNT tests"
+  echo "   Expected: 10+ tests (10 functional + non-functional)"
+fi
+
+# Show if options were properly received
+echo -e "\nDebugging: Check server logs for:"
+echo "  - '=== ENTERING generateTestCases ===' "
+echo "  - 'Options received:' (should show testCount:10, etc.)"
+echo "  - '=== ENTERING generateMockTestCases ===' "
+echo "  - 'Options:' (should show the same options)"

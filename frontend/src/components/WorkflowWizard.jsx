@@ -150,8 +150,8 @@ export default function WorkflowWizard({ initialTicket = null }) {
       isLoading: isLoading
     });
     
-    // Only set loading for steps that make API calls
-    if (step.name !== 'generateSelenium') {
+    // Only set loading for steps that make API calls (excluding those with their own loading states)
+    if (step.name !== 'generateSelenium' && step.name !== 'generateTests') {
       setIsLoading(true);
     }
     
@@ -558,7 +558,7 @@ export default function WorkflowWizard({ initialTicket = null }) {
           Step {currentStep}: {WORKFLOW_STEPS[currentStep - 1].label}
         </h2>
         
-        {isLoading && currentStep !== 4 ? ( // Don't show loading spinner for review step (step 4)
+        {isLoading && currentStep !== 3 && currentStep !== 4 ? ( // Don't show loading spinner for generate tests (step 3) or review step (step 4)
           <div className="flex flex-col items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-indigo-600 mb-4" />
             <p className="text-gray-600">Processing...</p>

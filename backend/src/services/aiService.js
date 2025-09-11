@@ -46,7 +46,7 @@ class AIService {
   getAvailableModels() {
     const models = {
       gemini: ['gemini-2.5-flash', 'gemini-2.5-pro'],
-      claude: ['claude-3-opus-20240229', 'claude-3-5-sonnet-20241022', 'claude-3-haiku-20240307']
+      claude: ['claude-opus-4-1-20250805', 'claude-3-5-sonnet-20241022', 'claude-3-opus-20240229', 'claude-3-haiku-20240307']
     };
     return models[this.currentProvider] || [];
   }

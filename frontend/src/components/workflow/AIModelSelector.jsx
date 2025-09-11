@@ -80,8 +80,9 @@ export default function AIModelSelector({ onModelChange, className = '' }) {
     const modelNames = {
       'gemini-2.5-flash': 'Gemini 2.5 Flash',
       'gemini-2.5-pro': 'Gemini 2.5 Pro',
-      'claude-3-opus-20240229': 'Claude 3 Opus',
+      'claude-opus-4-1-20250805': 'Claude Opus 4.1',
       'claude-3-5-sonnet-20241022': 'Claude 3.5 Sonnet',
+      'claude-3-opus-20240229': 'Claude 3 Opus',
       'claude-3-haiku-20240307': 'Claude 3 Haiku'
     };
     return modelNames[model] || model;
