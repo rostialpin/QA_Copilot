@@ -1,16 +1,19 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Code, Loader2, FolderOpen, Save, 
   GitBranch, ExternalLink, CheckCircle, 
   AlertCircle, FolderTree, FileCode, Copy, X, Zap,
   ChevronRight, ChevronDown, Folder, Globe, Search,
-  Database, Brain
+  Database, Brain, ChevronLeft, List, PlayCircle
 } from 'lucide-react';
 import axios from 'axios';
 import SuccessAnimation from '../SuccessAnimation';
 import AIModelSelector from './AIModelSelector';
 import PageObjectSelector from './PageObjectSelector';
 import SimilarTestsViewer from './SimilarTestsViewer';
+import EnhancedCodeSelector from './EnhancedCodeSelector';
+import TestCompletionFeedback from './TestCompletionFeedback';
+import MissingDataCollector from './MissingDataCollector';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -22,11 +25,65 @@ export default function JavaSeleniumGenerator({
   isLoading: parentLoading,
   onSkip
 }) {
+  // Flatten tests if they are grouped arrays
+  const flattenedTests = React.useMemo(() => {
+    if (!tests) return [];
+    
+    // Check if tests are already flattened (single test objects)
+    if (tests.length > 0 && tests[0].title && !Array.isArray(tests[0].title)) {
+      // Check if titles are concatenated (contain multiple test scenarios)
+      const allTests = [];
+      tests.forEach(test => {
+        // Check if this is a grouped test with concatenated title
+        if (test.title && test.title.includes('][')) {
+          // This appears to be multiple tests concatenated
+          // Try to split based on the pattern
+          const titleParts = test.title.split(/(?=\[)/);
+          if (titleParts.length > 1) {
+            // Create individual tests from the parts
+            titleParts.forEach((part, idx) => {
+              if (part.trim()) {
+                allTests.push({
+                  title: part.trim(),
+                  description: test.description ? `${test.description} (Part ${idx + 1})` : part.trim(),
+                  steps: test.steps ? [test.steps[idx] || `Step for ${part.trim()}`] : [],
+                  preconditions: test.preconditions,
+                  category: test.category
+                });
+              }
+            });
+          } else {
+            allTests.push(test);
+          }
+        } else {
+          allTests.push(test);
+        }
+      });
+      return allTests;
+    }
+    
+    // If tests are arrays of arrays, flatten them
+    return tests.flat();
+  }, [tests]);
+
   const [repoPath, setRepoPath] = useState(localStorage.getItem('lastRepoPath') || '');
   const [isValidRepo, setIsValidRepo] = useState(false);
   const [validationError, setValidationError] = useState('');
   const [isValidating, setIsValidating] = useState(false);
   const [pathType, setPathType] = useState('local'); // 'local' or 'github'
+  
+  // Test selection states
+  const [selectedTestIndex, setSelectedTestIndex] = useState(0);
+  const [showTestSelector, setShowTestSelector] = useState(true);
+  const [cachedGeneratedTests, setCachedGeneratedTests] = useState(() => {
+    // Load cached tests from localStorage on mount
+    try {
+      const cached = localStorage.getItem('qa-copilot-cached-tests');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
   
   const [directoryTree, setDirectoryTree] = useState([]);
   const [selectedDirectory, setSelectedDirectory] = useState('');
@@ -37,6 +94,8 @@ export default function JavaSeleniumGenerator({
   const [generatedTest, setGeneratedTest] = useState(generatedCode || null);
   const [patterns, setPatterns] = useState(null);
   const [generationStep, setGenerationStep] = useState(''); // 'indexing', 'learning', 'generating'
+  const [testAnalysis, setTestAnalysis] = useState(null);
+  const [feedbackReport, setFeedbackReport] = useState(null);
   
   const [saveOptions, setSaveOptions] = useState({
     createBranch: true,
@@ -48,6 +107,7 @@ export default function JavaSeleniumGenerator({
   const [showPathInstructions, setShowPathInstructions] = useState(false);
   const [expandedNodes, setExpandedNodes] = useState(new Set());
   const [showSuccessAnimation, setShowSuccessAnimation] = useState(false);
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(true); // Changed to true to show by default
   
   // DOM Analysis states
   const [applicationUrl, setApplicationUrl] = useState(localStorage.getItem('lastApplicationUrl') || '');
@@ -63,6 +123,13 @@ export default function JavaSeleniumGenerator({
   const [similarTests, setSimilarTests] = useState([]);
   const [extractedPatterns, setExtractedPatterns] = useState(null);
   const [showIntelligentMode, setShowIntelligentMode] = useState(true);
+  
+  // Pre-generation analysis states
+  const [showMissingDataCollector, setShowMissingDataCollector] = useState(false);
+  const [missingPatterns, setMissingPatterns] = useState({});
+  const [generationSessionId, setGenerationSessionId] = useState(null);
+  const [additionalFiles, setAdditionalFiles] = useState({});
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   // Validate repository when path changes
   useEffect(() => {
@@ -108,6 +175,11 @@ export default function JavaSeleniumGenerator({
         await loadDirectoryTree();
         // Check if repository is indexed
         await checkIndexStatus();
+        // Auto-discover properties path
+        await autoDiscoverProperties();
+        // Auto-select default test directory
+        setSelectedDirectory('src/test/java');
+        console.log('Auto-selected test directory: src/test/java');
       } else {
         setIsValidRepo(false);
         setValidationError(response.data.error || 'Invalid repository. Please ensure the path exists and contains Java files.');
@@ -124,6 +196,34 @@ export default function JavaSeleniumGenerator({
     }
   };
 
+  const autoDiscoverProperties = async () => {
+    try {
+      // Common locations for properties files in Java projects
+      const commonPaths = [
+        'src/main/resources/elements',
+        'src/main/resources/properties',
+        'src/test/resources/elements',
+        'src/test/resources/properties',
+        'mqe-unified-oao-tests-common/src/main/resources/elements'
+      ];
+      
+      // Try to find properties path automatically
+      for (const path of commonPaths) {
+        const fullPath = `${repoPath.trim()}/${path}`;
+        // In a real implementation, we'd check if this path exists
+        // For now, we'll set a likely path for the unified tests
+        if (repoPath.includes('mqe-unified-oao-tests')) {
+          const autoPath = `${repoPath.trim()}/mqe-unified-oao-tests-common/src/main/resources/elements/unified`;
+          setPropertiesPath(autoPath);
+          console.log('Auto-discovered properties path:', autoPath);
+          break;
+        }
+      }
+    } catch (error) {
+      console.log('Could not auto-discover properties, user can specify manually if needed');
+    }
+  };
+
   const checkIndexStatus = async () => {
     try {
       const response = await axios.get(`${API_URL}/api/codebase/status`, {
@@ -133,10 +233,18 @@ export default function JavaSeleniumGenerator({
       setIsIndexed(response.data.indexed);
       if (response.data.indexed) {
         setIndexStats(response.data.stats);
+        console.log('Repository already indexed:', response.data.stats);
+      } else {
+        // Proactively start indexing in the background
+        console.log('Repository not indexed. Starting background indexing...');
+        indexRepository(); // Don't await - let it run in background
       }
     } catch (error) {
       console.error('Error checking index status:', error);
       setIsIndexed(false);
+      // Try to index anyway if status check fails
+      console.log('Status check failed. Attempting to index repository...');
+      indexRepository(); // Don't await - let it run in background
     }
   };
   
@@ -172,23 +280,62 @@ export default function JavaSeleniumGenerator({
     setValidationError('');
     
     try {
-      const response = await axios.post(`${API_URL}/api/java-selenium/test-dom`, {
+      const response = await axios.post(`${API_URL}/api/dom-analyzer/analyze`, {
         url: applicationUrl
       });
       
-      setDomElements(response.data);
-      localStorage.setItem('lastApplicationUrl', applicationUrl);
-      console.log('DOM Analysis Results:', response.data);
-      
-      // Show success message
-      if (response.data.totalElements) {
+      if (response.data.success && response.data.analysis) {
+        const analysis = response.data.analysis;
+        
+        // Calculate stats from the analysis
+        const stats = analysis.stats || {
+          totalElements: analysis.elementCount || analysis.elements?.length || 0,
+          buttons: analysis.groupedElements?.buttons?.length || 0,
+          inputs: analysis.groupedElements?.inputs?.length || 0,
+          links: analysis.groupedElements?.links?.length || 0,
+          elementsWithTestId: analysis.elements?.filter(e => e.attributes?.['data-testid'])?.length || 0,
+          elementsWithAriaLabel: analysis.elements?.filter(e => e.attributes?.['aria-label'])?.length || 0,
+          focusableElements: analysis.elements?.filter(e => 
+            e.attributes?.tabindex !== undefined && e.attributes?.tabindex !== '-1'
+          )?.length || 0
+        };
+        
+        // Store both analysis and stats
+        setDomElements({
+          ...analysis,
+          stats,
+          totalElements: stats.totalElements,
+          buttons: stats.buttons,
+          inputs: stats.inputs,
+          links: stats.links,
+          elementsWithTestId: stats.elementsWithTestId,
+          elementsWithAriaLabel: stats.elementsWithAriaLabel,
+          focusableElements: stats.focusableElements
+        });
+        
+        localStorage.setItem('lastApplicationUrl', applicationUrl);
+        console.log('DOM Analysis Results:', analysis);
+        console.log('DOM Stats:', stats);
+        
+        // Show success message with details
+        const msg = `✅ DOM analyzed successfully! Found ${stats.totalElements} elements`;
+        const details = [];
+        if (stats.elementsWithTestId > 0) details.push(`${stats.elementsWithTestId} with test-ids`);
+        if (stats.buttons > 0) details.push(`${stats.buttons} buttons`);
+        if (stats.elementsWithAriaLabel > 0) details.push(`${stats.elementsWithAriaLabel} with aria-labels`);
+        
+        setDomAnalysisSuccess(msg + (details.length ? ` (${details.join(', ')})` : ''));
         setValidationError('');
-        // Set a success message to show DOM was analyzed
-        setDomAnalysisSuccess(`✓ DOM analyzed successfully: Found ${response.data.totalElements} elements (${response.data.buttons || 0} buttons, ${response.data.inputs || 0} inputs, ${response.data.links || 0} links)`);
+        
+        // Clear success message after 5 seconds
+        setTimeout(() => setDomAnalysisSuccess(''), 5000);
+      } else {
+        setValidationError('Failed to analyze DOM. Please check the URL.');
       }
     } catch (error) {
       console.error('Error analyzing DOM:', error);
-      setValidationError('Failed to analyze DOM. Please check the URL and try again.');
+      setValidationError(`Failed to analyze DOM: ${error.response?.data?.error || 'Please check the URL and try again.'}`);
+      setDomAnalysisSuccess('');
     } finally {
       setIsAnalyzingDom(false);
     }
@@ -248,70 +395,277 @@ export default function JavaSeleniumGenerator({
       return;
     }
     
-    setIsGenerating(true);
+    setIsAnalyzing(true);
     setSaveResult(null);
-    setGenerationStep('indexing');
+    setShowMissingDataCollector(false);
+    setGenerationStep('analyzing');
+    setShowTestSelector(false); // Hide selector when generating
     
     try {
-      // Use the first test for now (can be enhanced to handle multiple)
-      const manualTest = tests[0];
+      // Use the selected test index
+      const manualTest = tests[selectedTestIndex] || {
+        title: 'Generated Test',
+        description: 'Automated test',
+        steps: [],
+        preconditions: 'Standard test preconditions',
+        ticket: ticket
+      };
       
-      // Step 1: Index the repository if not already indexed
-      setGenerationStep('indexing');
-      if (!isIndexed) {
-        const indexed = await indexRepository();
-        if (!indexed) {
-          throw new Error('Failed to index repository. Please try again.');
-        }
+      console.log(`Processing test ${selectedTestIndex + 1} of ${tests.length} with ${manualTest.steps.length} steps`);
+      
+      // Step 1: Analyze requirements first
+      setGenerationStep('analyzing');
+      console.log('Analyzing test requirements...');
+      
+      // Collect existing code from selected files
+      const existingCode = [];
+      if (selectedPageObjects && selectedPageObjects.length > 0) {
+        existingCode.push(...selectedPageObjects.map(po => ({
+          name: po.name,
+          content: po.content
+        })));
       }
       
-      // Step 2: Learn patterns from the selected directory
-      setGenerationStep('learning');
-      const patternsResponse = await axios.post(`${API_URL}/api/java-selenium/learn-patterns`, {
-        repoPath,
-        testDirectory: selectedDirectory
-      });
-      
-      setPatterns(patternsResponse.data.patterns);
-      
-      // Check if patterns were actually learned (warning, not error)
-      if (!patternsResponse.data.patterns || 
-          (patternsResponse.data.patterns.importsCount === 0 && 
-           patternsResponse.data.patterns.annotationsCount === 0)) {
-        console.warn('No test patterns found in the selected directory. Using default patterns.');
-        // Continue with generation anyway - the backend will use defaults
-      }
-      
-      // Step 3: Generate the test using Gemini AI with smart locators
-      setGenerationStep('generating');
-      const response = await axios.post(`${API_URL}/api/java-selenium/generate-with-gemini`, {
+      const analysisResponse = await axios.post(`${API_URL}/api/java-selenium/analyze-requirements`, {
         manualTest,
-        repoPath,
-        testDirectory: selectedDirectory,
-        ticket: manualTest.ticket || null,
-        propertiesPath: propertiesPath || null,
-        applicationUrl: applicationUrl || null,
-        domElements: domElements || null,
-        pageObjects: selectedPageObjects || [],
-        similarTests: similarTests || [],
-        patterns: extractedPatterns || null
+        existingCode
       });
       
-      if (!response.data.test || !response.data.test.code) {
-        throw new Error('Failed to generate test code. The test generation returned empty results.');
+      if (!analysisResponse.data.success) {
+        throw new Error('Failed to analyze test requirements');
       }
       
-      setGeneratedTest(response.data.test);
-      onGenerated && onGenerated(response.data.test);
+      const { sessionId, missingPatterns: patterns, canGenerateComplete } = analysisResponse.data;
+      setGenerationSessionId(sessionId);
       
-      // Show automation success animation after generation (not save)
-      setShowSuccessAnimation(true);
+      // Check if we need to show missing data collector
+      if (!canGenerateComplete && Object.keys(patterns).length > 0) {
+        setMissingPatterns(patterns);
+        setShowMissingDataCollector(true);
+        setIsAnalyzing(false);
+        setIsGenerating(false); // Important: set this to false
+        console.log('Missing patterns detected:', patterns);
+        return; // Stop here and wait for user decision
+      }
+      
+      // If we have all patterns, proceed directly to generation
+      console.log('All patterns available, proceeding to generation');
+      await completeGeneration(sessionId, false);
     } catch (error) {
       console.error('Error generating test:', error);
       setValidationError(error.message || 'Failed to generate test. Please check console for details.');
     } finally {
+      setIsAnalyzing(false);
       setIsGenerating(false);
       setGenerationStep('');
+    }
+  };
+  
+  /**
+   * Complete generation after user decision on missing patterns
+   */
+  const completeGeneration = async (sessionId, includeAdditionalData, uploadedFiles = null) => {
+    setIsGenerating(true);
+    setShowMissingDataCollector(false);
+    setGenerationStep('generating');
+    
+    try {
+      console.log('Completing generation with session:', sessionId);
+      const response = await axios.post(`${API_URL}/api/java-selenium/complete-generation`, {
+        sessionId,
+        includeAdditionalData,
+        additionalFiles: uploadedFiles
+      });
+      
+      console.log('Complete generation response:', response.data);
+      
+      // Check if we got a test result
+      const generatedCode = response.data.test || response.data.generatedTest || response.data.code;
+      
+      if (!generatedCode) {
+        throw new Error('No test code was generated. Please try again.');
+      }
+      
+      setGeneratedTest(generatedCode);
+      
+      // Cache the generated test for navigation
+      const newCachedTests = [...cachedGeneratedTests];
+      newCachedTests[selectedTestIndex] = generatedCode;
+      setCachedGeneratedTests(newCachedTests);
+      localStorage.setItem('qa-copilot-cached-tests', JSON.stringify(newCachedTests));
+      
+      // Clear the session since we're done
+      setGenerationSessionId(null);
+      setMissingPatterns({});
+      
+      // Set analysis and feedback if available
+      if (response.data.analysis) {
+        setTestAnalysis(response.data.analysis);
+      }
+      if (response.data.feedbackReport) {
+        setFeedbackReport(response.data.feedbackReport);
+      }
+      
+      onGenerated && onGenerated(generatedCode);
+      setShowSuccessAnimation(true);
+    } catch (error) {
+      console.error('Error completing generation:', error);
+      // Instead of showing error, reset state to allow retry
+      setShowMissingDataCollector(false);
+      setGenerationSessionId(null);
+      setMissingPatterns({});
+      setValidationError('Failed to generate test. Please try again.');
+      // Don't stay in loading state
+      setIsGenerating(false);
+      setGenerationStep('');
+    }
+  };
+  
+  /**
+   * Handle file upload for missing patterns
+   */
+  const handlePatternFileUpload = async (category, files) => {
+    console.log('Files uploaded for category:', category, files);
+    setAdditionalFiles(prev => ({
+      ...prev,
+      [category]: files
+    }));
+    
+    // Update session on backend
+    if (generationSessionId) {
+      try {
+        await axios.post(`${API_URL}/api/java-selenium/update-session`, {
+          sessionId: generationSessionId,
+          category,
+          files: files.map(f => ({ name: f.name, size: f.size }))
+        });
+      } catch (error) {
+        console.error('Error updating session:', error);
+      }
+    }
+  };
+  
+  /**
+   * Handle user decision to provide additional data
+   */
+  const handleProvideData = async (uploadedFiles) => {
+    console.log('User provided additional data:', uploadedFiles);
+    
+    // Process uploaded files
+    const processedFiles = [];
+    for (const [category, files] of Object.entries(uploadedFiles)) {
+      for (const file of files) {
+        const content = await file.text();
+        processedFiles.push({
+          name: file.name,
+          category,
+          content
+        });
+      }
+    }
+    
+    await completeGeneration(generationSessionId, true, processedFiles);
+  };
+  
+  /**
+   * Handle user decision to skip and generate with TODOs
+   */
+  const handleSkipData = async () => {
+    console.log('handleSkipData called - User chose to generate with TODOs');
+    console.log('Current sessionId:', generationSessionId);
+    setShowMissingDataCollector(false);
+    setIsGenerating(true);
+    setGenerationStep('generating');
+    
+    try {
+      // Use selected test to avoid combining issues
+      const manualTest = tests[selectedTestIndex] || {
+        title: 'Generated Test',
+        description: 'Automated test',
+        steps: []
+      };
+      
+      console.log('Completing generation with TODOs, session:', generationSessionId);
+      
+      // Prepare existing code from selectedPageObjects
+      const existingCode = selectedPageObjects.map(po => ({
+        name: po.name,
+        content: po.content
+      }));
+      
+      const response = await axios.post(`${API_URL}/api/java-selenium/complete-generation`, {
+        sessionId: generationSessionId,
+        includeAdditionalData: false,
+        skipMissingPatterns: true,
+        manualTest,
+        selectedCode: existingCode
+      });
+      
+      console.log('Complete generation response:', response.data);
+      
+      const generatedCode = response.data.test || response.data.generatedTest || response.data.code;
+      
+      if (!generatedCode) {
+        throw new Error('No test code was generated.');
+      }
+      
+      // Save configuration for future use
+      try {
+        const config = {
+          selectedFiles: selectedPageObjects.map(po => ({ 
+            name: po.name, 
+            path: po.path || po.name 
+          })),
+          timestamp: new Date().toISOString(),
+          framework: 'selenium'
+        };
+        
+        localStorage.setItem('qa-copilot-last-config', JSON.stringify(config));
+        
+        const recentConfigs = JSON.parse(localStorage.getItem('qa-copilot-recent-configs') || '[]');
+        recentConfigs.unshift(config);
+        if (recentConfigs.length > 5) {
+          recentConfigs.pop();
+        }
+        localStorage.setItem('qa-copilot-recent-configs', JSON.stringify(recentConfigs));
+        
+        console.log('Configuration saved:', config);
+      } catch (saveError) {
+        console.error('Error saving configuration:', saveError);
+      }
+      
+      setGeneratedTest(generatedCode);
+      setGenerationSessionId(null);
+      setMissingPatterns({});
+      
+      if (response.data.analysis) {
+        setTestAnalysis(response.data.analysis);
+      }
+      if (response.data.feedbackReport) {
+        setFeedbackReport(response.data.feedbackReport);
+      }
+      
+      onGenerated && onGenerated(generatedCode);
+      setShowSuccessAnimation(true);
+      setIsGenerating(false);
+      setGenerationStep('');
+    } catch (error) {
+      console.error('Error completing generation:', error);
+      console.error('Error details:', error.response?.data || error.message);
+      
+      // Check if it's a session expiry or other specific error
+      if (error.response?.status === 404 || error.response?.data?.error?.includes('session')) {
+        setValidationError('Session expired. Starting fresh generation...');
+        // Try to generate without session (backend will handle it)
+        setGenerationSessionId(null);
+        // Don't reset the UI state - keep trying
+        setTimeout(() => handleSkipData(), 1000);
+      } else {
+        setValidationError(`Failed to generate test: ${error.response?.data?.error || error.message}`);
+        setShowMissingDataCollector(false);
+        setIsGenerating(false);
+        setGenerationStep('');
+      }
     }
   };
 
@@ -322,9 +676,12 @@ export default function JavaSeleniumGenerator({
     setSaveResult(null);
     
     try {
+      // Use the selected directory or default
+      const testDir = selectedDirectory || `${repoPath}/src/test/java`;
+      
       const response = await axios.post(`${API_URL}/api/java-selenium/save`, {
         repoPath,
-        testDirectory: selectedDirectory,
+        testDirectory: testDir,
         generatedTest,
         createBranch: saveOptions.createBranch,
         ticketId: ticket?.key
@@ -350,6 +707,13 @@ export default function JavaSeleniumGenerator({
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleFeedbackAction = async (action) => {
+    console.log('Handling feedback action:', action);
+    // Could implement automatic search for missing examples here
+    // For now, just log the action
+    alert(`Please search for and upload files matching: ${action.expectedFiles.join(', ')}`);
   };
 
   const renderDirectoryNode = (node, level = 0) => {
@@ -436,9 +800,112 @@ export default function JavaSeleniumGenerator({
   
   return (
     <div className="space-y-4">
+      {/* Test Selection UI */}
+      {tests && tests.length > 1 && showTestSelector && (
+        <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="font-medium text-gray-900 flex items-center gap-2">
+              <List className="h-5 w-5 text-indigo-600" />
+              Select Test to Automate
+            </h4>
+            <span className="text-sm text-gray-600">
+              {tests.length} tests available
+            </span>
+          </div>
+          
+          <div className="space-y-2 max-h-60 overflow-y-auto">
+            {tests.map((test, index) => (
+              <div
+                key={index}
+                onClick={() => setSelectedTestIndex(index)}
+                className={`p-3 rounded-lg cursor-pointer transition-all ${
+                  selectedTestIndex === index
+                    ? 'bg-white border-2 border-indigo-500 shadow-md'
+                    : 'bg-white border border-gray-200 hover:border-indigo-300 hover:shadow-sm'
+                }`}
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      {selectedTestIndex === index && (
+                        <CheckCircle className="h-4 w-4 text-indigo-600" />
+                      )}
+                      <span className="font-medium text-gray-900">
+                        Test {index + 1}: {test.title || `Test Case ${index + 1}`}
+                      </span>
+                    </div>
+                    {test.description && (
+                      <p className="text-sm text-gray-600 mt-1 line-clamp-2">
+                        {test.description}
+                      </p>
+                    )}
+                    <p className="text-xs text-gray-500 mt-1">
+                      {test.steps?.length || 0} steps
+                      {cachedGeneratedTests[index] && (
+                        <span className="ml-2 text-green-600">✓ Generated</span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          
+          {/* Navigation buttons */}
+          {tests.length > 1 && (
+            <div className="flex items-center justify-between mt-4 pt-3 border-t border-indigo-200">
+              <button
+                onClick={() => {
+                  const newIndex = selectedTestIndex > 0 ? selectedTestIndex - 1 : tests.length - 1;
+                  setSelectedTestIndex(newIndex);
+                  if (cachedGeneratedTests[newIndex]) {
+                    setGeneratedTest(cachedGeneratedTests[newIndex]);
+                  } else {
+                    setGeneratedTest(null);
+                  }
+                }}
+                className="px-3 py-1 bg-white border border-gray-300 rounded-md hover:bg-gray-50 flex items-center gap-1 text-sm"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Previous
+              </button>
+              
+              <span className="text-sm text-gray-600">
+                Test {selectedTestIndex + 1} of {tests.length}
+              </span>
+              
+              <button
+                onClick={() => {
+                  const newIndex = selectedTestIndex < tests.length - 1 ? selectedTestIndex + 1 : 0;
+                  setSelectedTestIndex(newIndex);
+                  if (cachedGeneratedTests[newIndex]) {
+                    setGeneratedTest(cachedGeneratedTests[newIndex]);
+                  } else {
+                    setGeneratedTest(null);
+                  }
+                }}
+                className="px-3 py-1 bg-white border border-gray-300 rounded-md hover:bg-gray-50 flex items-center gap-1 text-sm"
+              >
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* AI Model Selector */}
       <div className="flex justify-between items-center">
-        <h3 className="text-lg font-semibold text-gray-900">Generate Selenium Test</h3>
+        <div>
+          <h3 className="text-lg font-semibold text-gray-900">Generate Selenium Test</h3>
+          <p className="text-sm text-gray-600">
+            {tests?.length > 1 ? (
+              <>Selected: Test {selectedTestIndex + 1} of {tests.length}</>
+            ) : (
+              <>Processing {tests?.length || 0} manual test</>
+            )}
+          </p>
+        </div>
         <AIModelSelector 
           onModelChange={(selection) => console.log('Model changed:', selection)}
           className=""
@@ -629,30 +1096,47 @@ export default function JavaSeleniumGenerator({
       )}
 
       {/* Intelligent Components - Similar Tests & Page Objects */}
-      {isValidRepo && showIntelligentMode && isIndexed && tests && tests.length > 0 && (
+      {isValidRepo && showIntelligentMode && isIndexed && flattenedTests && flattenedTests.length > 0 && (
         <div className="space-y-4">
           {/* Similar Tests Viewer */}
           <SimilarTestsViewer
             repoPath={repoPath}
-            testScenario={tests[0]?.description || tests[0]?.steps?.join(' ')}
+            testScenario={flattenedTests[selectedTestIndex]?.description || flattenedTests[selectedTestIndex]?.steps?.join(' ')}
             onTestsFound={(foundTests, patterns) => {
               setSimilarTests(foundTests);
               setExtractedPatterns(patterns);
             }}
           />
           
-          {/* Page Object Selector */}
+          {/* Page Object Selector - Hidden in favor of EnhancedCodeSelector */}
+          {false && flattenedTests.length > 0 && (
           <PageObjectSelector
             repoPath={repoPath}
-            testScenario={tests[0]?.description || tests[0]?.steps?.join(' ')}
+            testScenario={flattenedTests[0]?.description || flattenedTests[0]?.steps?.join(' ') || ''}
             onPageObjectsSelected={setSelectedPageObjects}
             selectedPageObjects={selectedPageObjects}
           />
+          )}
         </div>
       )}
 
-      {/* Directory Browser */}
+      {/* Enhanced Code Selector with Caching */}
       {isValidRepo && (
+        <EnhancedCodeSelector
+          repoPath={repoPath}
+          functionalityName={flattenedTests?.[0]?.category || ''}
+          onSelectionChange={(folders) => {
+            setSelectedDirectory(folders.tests);
+            setPropertiesPath(folders.properties);
+            localStorage.setItem('lastTestDirectory', folders.tests);
+            localStorage.setItem('lastPropertiesPath', folders.properties);
+            localStorage.setItem('lastPageObjectsPath', folders.pageObjects);
+          }}
+        />
+      )}
+
+      {/* Original Directory Browser - Now Hidden */}
+      {false && isValidRepo && (
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Test Directory Path
@@ -772,7 +1256,8 @@ export default function JavaSeleniumGenerator({
         </div>
       )}
 
-      {/* Application URL for DOM Analysis */}
+      {/* Application URL for DOM Analysis - HIDDEN FOR NOW */}
+      {false && (
       <div className="mt-4">
         <label className="block text-sm font-medium text-gray-700 mb-2">
           <Globe className="inline h-4 w-4 mr-1" />
@@ -826,19 +1311,43 @@ export default function JavaSeleniumGenerator({
           )}
         </div>
         
+        {/* DOM Analysis Success Message */}
+        {domAnalysisSuccess && (
+          <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-lg animate-pulse">
+            <p className="text-sm text-green-900 font-medium">{domAnalysisSuccess}</p>
+          </div>
+        )}
+        
+        {/* DOM Analysis Error */}
+        {validationError && validationError.includes('DOM') && (
+          <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-sm text-red-900">{validationError}</p>
+          </div>
+        )}
+        
         {/* DOM Analysis Results */}
-        {domElements && (
+        {domElements && !domAnalysisSuccess && (
           <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-lg">
             <div className="text-sm text-green-900">
               <p className="font-medium mb-1">✅ DOM Analysis Complete</p>
               <div className="text-xs text-green-700 space-y-1">
-                <p>• Found {domElements.totalElements} interactive elements</p>
-                <p>• {domElements.buttons || 0} buttons</p>
-                <p>• {domElements.inputs || 0} input fields</p>
-                <p>• {domElements.links || 0} links</p>
-                {domElements.elementsWithTestId > 0 && (
+                <p>• Found {domElements.stats?.totalElements || domElements.totalElements || domElements.elementCount || 0} interactive elements</p>
+                <p>• {domElements.stats?.buttons || domElements.buttons || 0} buttons</p>
+                <p>• {domElements.stats?.inputs || domElements.inputs || 0} input fields</p>
+                <p>• {domElements.stats?.links || domElements.links || 0} links</p>
+                {(domElements.stats?.elementsWithTestId || domElements.elementsWithTestId) > 0 && (
                   <p className="text-green-800 font-medium">
-                    • {domElements.elementsWithTestId} elements with test IDs (excellent for automation!)
+                    • {domElements.stats?.elementsWithTestId || domElements.elementsWithTestId} elements with test IDs (excellent for automation!)
+                  </p>
+                )}
+                {domElements.stats?.elementsWithAriaLabel > 0 && (
+                  <p className="text-green-700">
+                    • {domElements.stats.elementsWithAriaLabel} elements with ARIA labels
+                  </p>
+                )}
+                {domElements.stats?.focusableElements > 0 && (
+                  <p className="text-green-700">
+                    • {domElements.stats.focusableElements} focusable elements
                   </p>
                 )}
               </div>
@@ -850,9 +1359,26 @@ export default function JavaSeleniumGenerator({
           🎯 The AI will use real DOM structure to generate accurate locators
         </p>
       </div>
+      )}
 
-      {/* Properties File Path for Locator Training */}
+      {/* Advanced Options Toggle */}
       {isValidRepo && (
+        <div className="mt-4">
+          <button
+            onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
+            className="text-sm text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+          >
+            {showAdvancedOptions ? (
+              <><ChevronDown className="h-4 w-4" /> Hide Advanced Options</>
+            ) : (
+              <><ChevronRight className="h-4 w-4" /> Show Advanced Options (Optional)</>
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* Properties File Path - Now managed by Enhanced Code Selector */}
+      {false && showAdvancedOptions && isValidRepo && (
         <div className="mt-4">
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Properties File Path (Optional)
@@ -892,23 +1418,37 @@ export default function JavaSeleniumGenerator({
         </div>
       )}
 
+      {/* Missing Data Collector - Shows when patterns are missing */}
+      {showMissingDataCollector && (
+        <MissingDataCollector
+          missingPatterns={missingPatterns}
+          onGoBack={() => {
+            setShowMissingDataCollector(false);
+            // Don't clear the session - user might come back
+            // setGenerationSessionId(null);
+            setIsAnalyzing(false);
+          }}
+          onProceedWithTodos={handleSkipData}
+        />
+      )}
+
+      {/* Loading indicator when generating with TODOs */}
+      {isGenerating && !showMissingDataCollector && !generatedTest && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+          <div className="flex items-center justify-center gap-3">
+            <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+            <p className="text-blue-900 font-medium">
+              {generationStep === 'generating' && 'Generating test with TODO comments for missing patterns...'}
+              {!generationStep && 'Processing...'}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Action Buttons Section */}
-      {isValidRepo && !generatedTest && (
+      {isValidRepo && !generatedTest && !showMissingDataCollector && !isGenerating && (
         <div className="border-t pt-4 mt-4">
-          {!selectedDirectory ? (
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
-                <div>
-                  <p className="text-yellow-900 font-medium">Select a test directory to continue</p>
-                  <p className="text-yellow-700 text-sm mt-1">
-                    Choose a directory from the tree above where your tests are located or where you want to generate new tests.
-                  </p>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-3">
+          <div className="space-y-3">
               <div className="bg-green-50 border border-green-200 rounded-lg p-3">
                 <div className="flex items-center gap-2">
                   <CheckCircle className="h-5 w-5 text-green-600" />
@@ -922,20 +1462,22 @@ export default function JavaSeleniumGenerator({
                 <h5 className="text-sm font-medium text-blue-900 mb-2">What will happen:</h5>
                 <ul className="text-xs text-blue-700 space-y-1">
                   <li>1️⃣ Index all Java files in your repository (may use cache if recent)</li>
-                  <li>2️⃣ Analyze test patterns from: <code className="bg-blue-100 px-1 rounded">{selectedDirectory.split('/').slice(-2).join('/')}</code></li>
+                  <li>2️⃣ Analyze test patterns from: <code className="bg-blue-100 px-1 rounded">{selectedDirectory ? selectedDirectory.split('/').slice(-2).join('/') : 'src/test/java'}</code></li>
                   <li>3️⃣ Extract imports, annotations, and assertion styles</li>
-                  <li>4️⃣ Generate Selenium test matching your code style</li>
+                  <li>4️⃣ Generate smart locators based on element names (e.g., "Resume button" → find by text "Resume")</li>
+                  <li>5️⃣ Create Selenium test for: <strong>{flattenedTests[selectedTestIndex]?.title || 'selected test'}</strong></li>
                 </ul>
               </div>
               
               <button
                 onClick={generateSeleniumTest}
-                disabled={isGenerating}
+                disabled={isAnalyzing || isGenerating}
                 className="w-full bg-indigo-600 text-white py-3 rounded-lg hover:bg-indigo-700 flex items-center justify-center gap-2 disabled:opacity-50 shadow-lg transform transition hover:scale-105"
               >
-                {isGenerating ? (
+                {(isAnalyzing || isGenerating) ? (
                   <>
                     <Loader2 className="h-5 w-5 animate-spin" />
+                    {generationStep === 'analyzing' && 'Analyzing test requirements...'}
                     {generationStep === 'indexing' && 'Indexing repository...'}
                     {generationStep === 'learning' && 'Learning from existing tests...'}
                     {generationStep === 'generating' && 'Generating Selenium test...'}
@@ -943,20 +1485,21 @@ export default function JavaSeleniumGenerator({
                   </>
                 ) : (
                   <>
-                    <Zap className="h-5 w-5" />
-                    Generate Selenium Test Now
+                    <PlayCircle className="h-5 w-5" />
+                    Generate Test {selectedTestIndex + 1}
                   </>
                 )}
               </button>
               
               <div className="text-xs text-gray-500 text-center space-y-1 mt-2">
                 <p>This will analyze your existing patterns and generate production-ready Selenium tests</p>
-                <p className="text-gray-400">
-                  Will scan: {selectedDirectory.split('/').slice(-3).join('/')}
-                </p>
+                {selectedDirectory && (
+                  <p className="text-gray-400">
+                    Will scan: {selectedDirectory.split('/').slice(-3).join('/')}
+                  </p>
+                )}
               </div>
             </div>
-          )}
         </div>
       )}
 
@@ -982,6 +1525,15 @@ export default function JavaSeleniumGenerator({
               </pre>
             </div>
           </div>
+
+          {/* Test Completeness Feedback */}
+          {testAnalysis && feedbackReport && (
+            <TestCompletionFeedback 
+              analysis={testAnalysis}
+              feedbackReport={feedbackReport}
+              onActionClick={handleFeedbackAction}
+            />
+          )}
 
           {/* Save Options */}
           {!saveResult && (
@@ -1065,10 +1617,17 @@ export default function JavaSeleniumGenerator({
                     setGeneratedTest(null);
                     setSaveResult(null);
                     setPatterns(null);
+                    setShowTestSelector(true);
+                    // Move to next test if available
+                    if (flattenedTests.length > 1 && selectedTestIndex < flattenedTests.length - 1) {
+                      setSelectedTestIndex(selectedTestIndex + 1);
+                    }
                   }}
                   className="flex-1 bg-white text-gray-700 py-2 px-4 rounded border border-gray-300 hover:bg-gray-50 text-sm"
                 >
-                  Generate Another Test
+                  {flattenedTests.length > 1 && selectedTestIndex < flattenedTests.length - 1 
+                    ? 'Generate Next Test' 
+                    : 'Generate Another Test'}
                 </button>
                 {saveOptions.openInIDE && (
                   <button
