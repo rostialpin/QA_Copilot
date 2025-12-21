@@ -616,10 +616,256 @@ EMBEDDING_DIMENSIONS=384
 ---
 
 *Document Version: 2.0*  
-*Last Updated: December 2024*  
+*Last Updated: December 2025*  
 *Authors: QA Copilot Team*
 
 ### Change Log:
+- **v3.0** (Dec 2024): Added Hybrid RAG + Context-Aware Agent for multi-file generation
 - **v2.1** (Dec 2024): Added test selection interface with flattening, navigation, and caching
 - **v2.0** (Dec 2024): Migrated from Voyage AI to local Transformers.js embeddings
 - **v1.0** (Sep 2024): Initial architecture with Voyage AI
+
+---
+
+## 14. Hybrid RAG Architecture (v3.0 - December 2024)
+
+### Overview
+
+The **Hybrid RAG (Retrieval Augmented Generation)** system combines automatic context retrieval with optional user hints to generate framework-specific test code. This addresses the core problem where AI generates generic Selenium code instead of code matching the user's existing patterns.
+
+### The Problem with Pure Semantic Search
+
+Even with repository indexing, semantic similarity alone fails to understand:
+- Which methods to **reuse** vs. **create new**
+- Naming conventions and coding patterns
+- Element locator strategies specific to the framework
+- Test structure and assertion patterns
+
+### Solution: Hybrid Approach
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                      HYBRID RAG WORKFLOW                            │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ONE-TIME SETUP                      EACH TEST GENERATION           │
+│  ─────────────────                   ─────────────────────          │
+│                                                                     │
+│  ┌─────────────┐                     ┌─────────────────────┐        │
+│  │   Index     │                     │  User provides:     │        │
+│  │ Repository  │                     │  • Test scenario    │        │
+│  │  (once)     │                     │  • Optional hints:  │        │
+│  └─────┬───────┘                     │   - Similar test    │        │
+│        │                             │   - Primary screen  │        │
+│        ▼                             └──────────┬──────────┘        │
+│  ┌─────────────┐                                │                   │
+│  │  ChromaDB   │◄───────────────────────────────┤                   │
+│  │  (vectors)  │         Semantic Search        │                   │
+│  └─────────────┘                                ▼                   │
+│        │                             ┌─────────────────────┐        │
+│        │                             │  RAG Auto-Retrieves │        │
+│        └────────────────────────────►│  • Page Objects     │        │
+│                                      │  • Properties       │        │
+│                                      │  • Similar Tests    │        │
+│                                      └──────────┬──────────┘        │
+│                                                 │                   │
+│                                                 ▼                   │
+│                                      ┌─────────────────────┐        │
+│                                      │   AI Generates:     │        │
+│                                      │   • Test Class      │        │
+│                                      │   • PO Updates      │        │
+│                                      │   • Property Updates│        │
+│                                      └─────────────────────┘        │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Detailed Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      HYBRID RAG INTELLIGENT TEST GENERATION                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │                         ONE-TIME SETUP PHASE                           │ │
+│  ├────────────────────────────────────────────────────────────────────────┤ │
+│  │                                                                        │ │
+│  │   ┌─────────────┐      ┌─────────────┐      ┌─────────────────────┐   │ │
+│  │   │  Test Repo  │ ──── │   Indexer   │ ──── │     ChromaDB        │   │ │
+│  │   │  (Java)     │      │  Service    │      │  (Vector Store)     │   │ │
+│  │   └─────────────┘      └─────────────┘      └─────────────────────┘   │ │
+│  │         │                    │                       │                │ │
+│  │         │                    ▼                       │                │ │
+│  │         │           ┌───────────────┐                │                │ │
+│  │         │           │  Extracts:    │                │                │ │
+│  │         │           │  • Methods    │                │                │ │
+│  │         │           │  • Elements   │                │                │ │
+│  │         │           │  • Patterns   │                │                │ │
+│  │         │           └───────────────┘                │                │ │
+│  │         │                                            │                │ │
+│  │   Files indexed:                            Collections created:      │ │
+│  │   • *Screen.java (Page Objects)             • page_objects            │ │
+│  │   • *Test.java (Test files)                 • properties              │ │
+│  │   • *.properties (Locators)                 • test_files              │ │
+│  │                                             • methods                 │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │                      TEST GENERATION PHASE                             │ │
+│  ├────────────────────────────────────────────────────────────────────────┤ │
+│  │                                                                        │ │
+│  │   ┌─────────────────────────────────────────────────────────────────┐  │ │
+│  │   │                        USER INPUT                               │  │ │
+│  │   │  ┌─────────────────┐    ┌─────────────────────────────────┐    │  │ │
+│  │   │  │  Test Scenario  │    │  Optional Hints                 │    │  │ │
+│  │   │  │  • Title        │    │  • Similar Test (most helpful!) │    │  │ │
+│  │   │  │  • Description  │    │  • Primary Screen               │    │  │ │
+│  │   │  │  • Steps        │    │  • Quick Template               │    │  │ │
+│  │   │  └────────┬────────┘    └───────────────┬─────────────────┘    │  │ │
+│  │   └───────────┼─────────────────────────────┼──────────────────────┘  │ │
+│  │               │                             │                         │ │
+│  │               ▼                             ▼                         │ │
+│  │   ┌─────────────────────────────────────────────────────────────────┐ │ │
+│  │   │                     HYBRID RAG SERVICE                          │ │ │
+│  │   │  ┌───────────────────────────────────────────────────────────┐  │ │ │
+│  │   │  │                   Semantic Search                         │  │ │ │
+│  │   │  │  Query: "Restart button visibility player test"           │  │ │ │
+│  │   │  │         + hint boost: "primaryScreen: player"             │  │ │ │
+│  │   │  └───────────────────────────────────────────────────────────┘  │ │ │
+│  │   │                            │                                    │ │ │
+│  │   │                            ▼                                    │ │ │
+│  │   │  ┌───────────────────────────────────────────────────────────┐  │ │ │
+│  │   │  │              ChromaDB Vector Search                       │  │ │ │
+│  │   │  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────────────┐  │  │ │ │
+│  │   │  │  │Page Objects │ │ Properties  │ │   Similar Tests     │  │  │ │ │
+│  │   │  │  │ Retrieval   │ │ Retrieval   │ │    Retrieval        │  │  │ │ │
+│  │   │  │  │  (top 5)    │ │  (top 5)    │ │     (top 5)         │  │  │ │ │
+│  │   │  │  └─────────────┘ └─────────────┘ └─────────────────────┘  │  │ │ │
+│  │   │  └───────────────────────────────────────────────────────────┘  │ │ │
+│  │   └─────────────────────────────────────────────────────────────────┘ │ │
+│  │                                │                                      │ │
+│  │                                ▼                                      │ │
+│  │   ┌─────────────────────────────────────────────────────────────────┐ │ │
+│  │   │              CONTEXT-AWARE CODE GENERATION AGENT                │ │ │
+│  │   │  ┌───────────────────────────────────────────────────────────┐  │ │ │
+│  │   │  │                    ANALYSIS PHASE                         │  │ │ │
+│  │   │  │  • Extract existing methods from Page Objects             │  │ │ │
+│  │   │  │  • Extract existing elements from Properties              │  │ │ │
+│  │   │  │  • Learn patterns from similar tests                      │  │ │ │
+│  │   │  │  • Identify: reusable vs new-to-create                    │  │ │ │
+│  │   │  └───────────────────────────────────────────────────────────┘  │ │ │
+│  │   │                            │                                    │ │ │
+│  │   │                            ▼                                    │ │ │
+│  │   │  ┌───────────────────────────────────────────────────────────┐  │ │ │
+│  │   │  │                  GENERATION PHASE                         │  │ │ │
+│  │   │  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────────────┐  │  │ │ │
+│  │   │  │  │ Test Class  │ │ PO Updates  │ │ Property Updates    │  │  │ │ │
+│  │   │  │  │ Generation  │ │ (new methods│ │ (new locators)      │  │  │ │ │
+│  │   │  │  │             │ │  if needed) │ │                     │  │  │ │ │
+│  │   │  │  └─────────────┘ └─────────────┘ └─────────────────────┘  │  │ │ │
+│  │   │  └───────────────────────────────────────────────────────────┘  │ │ │
+│  │   │                            │                                    │ │ │
+│  │   │                            ▼                                    │ │ │
+│  │   │  ┌───────────────────────────────────────────────────────────┐  │ │ │
+│  │   │  │                    VALIDATION                             │  │ │ │
+│  │   │  │  • Check all methods exist or are being created           │  │ │ │
+│  │   │  │  • Verify screen references are valid                     │  │ │ │
+│  │   │  │  • Flag any invented/hallucinated methods                 │  │ │ │
+│  │   │  └───────────────────────────────────────────────────────────┘  │ │ │
+│  │   └─────────────────────────────────────────────────────────────────┘ │ │
+│  │                                │                                      │ │
+│  │                                ▼                                      │ │
+│  │   ┌─────────────────────────────────────────────────────────────────┐ │ │
+│  │   │                      AI SERVICE (OpenRouter)                    │ │ │
+│  │   │  • Model: google/gemini-3-flash-preview                         │ │ │
+│  │   │  • Multi-key rotation for rate limits                           │ │ │
+│  │   │  • Fallback to template-based generation                        │ │ │
+│  │   └─────────────────────────────────────────────────────────────────┘ │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### New Components (v3.0)
+
+#### 1. HybridRAGService (`hybridRAGService.js`)
+
+**Purpose**: Index repository and retrieve relevant context using semantic search.
+
+**ChromaDB Collections**:
+| Collection | Contents | Use Case |
+|------------|----------|----------|
+| `page_objects` | Screen/Page classes | Find relevant Page Objects |
+| `properties` | Element locators | Find relevant property files |
+| `test_files` | Existing tests | Find similar test patterns |
+| `methods` | Individual methods | Fine-grained method matching |
+
+#### 2. ContextAwareCodeGenerationAgent (`contextAwareCodeGenerationAgent.js`)
+
+**Purpose**: Analyze context and generate multi-file output.
+
+**Output Structure**:
+```json
+{
+  "testClass": {
+    "className": "RestartButtonVisibilityTest",
+    "code": "public class RestartButtonVisibilityTest..."
+  },
+  "pageObjectUpdates": {
+    "playerScreen": {
+      "newMethods": [{ "name": "isRestartButtonDisplayed", "code": "..." }]
+    }
+  },
+  "propertyUpdates": {
+    "PlayerScreen": {
+      "newElements": [{ "key": "restartButtonElement", "value": "xpath://..." }]
+    }
+  }
+}
+```
+
+#### 3. OpenRouterService (`openrouterService.js`)
+
+**Purpose**: AI generation with multi-key rotation for rate limit handling.
+
+### New API Endpoints (v3.0)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/hybrid-rag/initialize` | Connect to ChromaDB |
+| POST | `/api/hybrid-rag/index` | Index repository (one-time) |
+| POST | `/api/hybrid-rag/retrieve` | Retrieve context for scenario |
+| GET | `/api/hybrid-rag/stats` | Check index stats |
+| POST | `/api/context-aware-agent/generate` | Generate multi-file output |
+
+### Usage Modes
+
+**Mode 1: Full Manual** - User selects all files (current UI behavior)
+
+**Mode 2: RAG Only** - System auto-retrieves everything
+```json
+{
+  "testScenario": { "title": "Restart button visibility" },
+  "useRAG": true
+}
+```
+
+**Mode 3: Hybrid (Recommended)** - RAG + user hints
+```json
+{
+  "testScenario": { "title": "Restart button visibility" },
+  "hints": {
+    "similarTest": "/path/to/PlaybackTest.java",
+    "primaryScreen": "player"
+  }
+}
+```
+
+### Files Added in v3.0
+
+- `backend/src/services/hybridRAGService.js`
+- `backend/src/services/contextAwareCodeGenerationAgent.js`
+- `backend/src/routes/hybridRAG.routes.js`
+- `backend/src/routes/contextAwareAgent.routes.js`
+- `backend/src/controllers/contextAwareAgentController.js`

@@ -1,9 +1,14 @@
 // QA Copilot Backend Server - Node.js 22 with ES modules
+// Load environment variables FIRST before any other imports
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express from 'express';
 import cors from 'cors';
 import { router as apiRouter } from './src/routes/index.js';
 import configRoutes from './src/routes/configRoutes.js';
 import codebaseRoutes from './src/routes/codebaseRoutes.js';
+import unifiedRoutes from './src/routes/unifiedRoutes.js';
 import { errorHandler } from './src/middleware/errorHandler.js';
 import { logger } from './src/utils/logger.js';
 import { initDatabase } from './src/utils/database.js';
@@ -11,21 +16,25 @@ import { initDatabase } from './src/utils/database.js';
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Middleware
+// Middleware - Allow all localhost origins for development
 app.use(cors({
   origin: function (origin, callback) {
-    const allowedOrigins = [
-      'http://localhost:5173',
-      'http://localhost:5174',
-      'http://localhost:5175',
-      process.env.FRONTEND_URL
-    ].filter(Boolean);
-    
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) {
+      return callback(null, true);
     }
+
+    // Allow any localhost or 127.0.0.1 origin
+    if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+      return callback(null, true);
+    }
+
+    // Allow configured frontend URL
+    if (process.env.FRONTEND_URL && origin === process.env.FRONTEND_URL) {
+      return callback(null, true);
+    }
+
+    callback(new Error('Not allowed by CORS'));
   },
   credentials: true
 }));
@@ -59,6 +68,7 @@ app.get('/health', (req, res) => {
 app.use('/api', apiRouter);
 app.use('/api/config', configRoutes);
 app.use('/api/codebase', codebaseRoutes);
+app.use('/api/unified', unifiedRoutes);
 
 // Error handling
 app.use(errorHandler);

@@ -10,6 +10,8 @@ import domAnalyzerRouter from './domAnalyzer.routes.js';
 import smartTestGeneratorRouter from './smartTestGenerator.routes.js';
 import aiRouter from './ai.routes.js';
 import patternLearningRouter from './patternLearning.routes.js';
+import contextAwareAgentRouter from './contextAwareAgent.routes.js';
+import hybridRAGRouter from './hybridRAG.routes.js';
 
 export const router = express.Router();
 
@@ -30,3 +32,5 @@ router.use('/dom-analyzer', domAnalyzerRouter);
 router.use('/smart-test', smartTestGeneratorRouter);
 router.use('/ai', aiRouter);
 router.use('/pattern-learning', patternLearningRouter);
+router.use('/context-aware-agent', contextAwareAgentRouter);
+router.use('/hybrid-rag', hybridRAGRouter);

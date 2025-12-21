@@ -2,6 +2,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { logger } from '../utils/logger.js';
 import { getConfluenceService } from './confluenceService.js';
 import patternLearningService from './patternLearningService.js';
+import preconditionTransformer from './preconditionTransformer.js';
 
 export class GeminiService {
   constructor() {
@@ -86,9 +87,10 @@ export class GeminiService {
     }
     
     if (!this.model) {
-      logger.warn('Gemini API not configured, returning fallback test cases');
-      logger.warn('API Key status:', this.apiKey ? 'Present' : 'Missing');
+      logger.warn('Gemini API not configured, returning comprehensive mock test cases');
+      logger.warn('API Key status:', this.apiKey ? 'Present' : 'Missing - Please set GEMINI_API_KEY in .env file');
       logger.warn('Model status:', this.currentModel);
+      logger.warn('To get a Gemini API key, visit: https://makersuite.google.com/app/apikey');
       const mockResult = this.generateMockTestCases(ticket, options);
       return mockResult.testCases || [];
     }
@@ -101,6 +103,8 @@ export class GeminiService {
       const response = await result.response;
       const text = response.text();
       logger.info('Gemini API response received, parsing test cases');
+      logger.info(`Gemini raw response length: ${text.length} chars`);
+      logger.info(`Gemini raw response preview: ${text.substring(0, 500)}`);
       const parsed = this.parseTestCases(text);
       // Extract testCases array from the parsed result
       return parsed.testCases || [];
@@ -111,6 +115,22 @@ export class GeminiService {
       // The mock result includes the full test count and non-functional tests
       logger.info(`Mock generation completed with ${mockResult.testCases?.length || 0} total tests`);
       return mockResult.testCases || [];
+    }
+  }
+
+  /**
+   * Generate content directly from a prompt
+   */
+  async generate(prompt) {
+    try {
+      logger.info('Generating content with direct prompt');
+      const result = await this.model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
+      return text;
+    } catch (error) {
+      logger.error('Error generating content:', error);
+      throw error;
     }
   }
 
@@ -125,7 +145,7 @@ export class GeminiService {
       includePerformance = false,
       includeSecurity = false,
       includeAccessibility = false,
-      testCount = 5
+      testCount = options.testCount || 16  // Default to 16 tests for better fallback
     } = options;
     
     logger.info(`After destructuring - testTypes=${JSON.stringify(testTypes)}, includePerformance=${includePerformance}, includeSecurity=${includeSecurity}, includeAccessibility=${includeAccessibility}, testCount=${testCount}, ticketType=${ticket.type}`);
@@ -231,6 +251,7 @@ export class GeminiService {
       // If we don't have any tests yet or need more standard tests
       if (mockTestCases.length === 0) {
         const featureSteps = this.generateFeatureSteps(ticket, acceptanceCriteria);
+        // Start with two base tests but allow more to be generated later
         mockTestCases = [
         {
           testType: 'functional',
@@ -300,7 +321,8 @@ export class GeminiService {
 
     // Calculate how many tests to generate for each type
     const typesToGenerate = [];
-    if (testTypes.includes('functional') || (!includePerformance && !includeSecurity && !includeAccessibility)) {
+    // Only generate functional tests if explicitly requested
+    if (testTypes.includes('functional')) {
       typesToGenerate.push('functional');
     }
     if (includePerformance || testTypes.includes('performance')) typesToGenerate.push('performance');
@@ -309,7 +331,9 @@ export class GeminiService {
     
     // For functional tests, use the full testCount
     // Non-functional tests are added IN ADDITION to functional tests
-    const functionalCount = typesToGenerate.includes('functional') ? testCount : 0;
+    // If testCount is not properly set, default to 10
+    const actualTestCount = testCount || 10;
+    const functionalCount = typesToGenerate.includes('functional') ? actualTestCount : 0;
     
     // Generate the appropriate number of functional tests based on testCount
     if (functionalCount > 0) {
@@ -429,7 +453,12 @@ export class GeminiService {
     }
 
     logger.info(`Final test count before return: mockTestCases.length=${mockTestCases.length}`);
-    return { testCases: mockTestCases, style };
+
+    // Transform preconditions into test steps for mock test cases
+    const transformedTestCases = preconditionTransformer.processTestCases(mockTestCases);
+    logger.info('Transformed preconditions into test steps for mock test cases');
+
+    return { testCases: transformedTestCases, style };
   }
 
   async learnFromElementProperties(repoPath) {
@@ -757,8 +786,8 @@ REQUIREMENTS:
 =============
 Generate test cases covering the following types:
 
-IMPORTANT: Non-functional tests should be ADDITIONAL to functional tests, not replace them.
-${testTypes.includes('functional') || (!includePerformance && !includeSecurity && !includeAccessibility) ? `
+IMPORTANT: Generate only the test types that were specifically requested.
+${testTypes.includes('functional') ? `
 1. FUNCTIONAL TESTS (Generate ${options.testCount || 5} test cases):
 ${types.includes('positive') ? '   - Positive/Happy path scenarios' : ''}
 ${types.includes('negative') ? '   - Negative scenarios and error handling' : ''}
@@ -789,10 +818,22 @@ ${includeAccessibility || testTypes.includes('accessibility') ? `
    - ARIA labels and roles
    - Alternative text for images` : ''}
 
+CRITICAL: Transform ALL preconditions into actionable test steps. Do NOT leave preconditions as passive requirements.
+
+PRECONDITION TRANSFORMATION RULES:
+- "User has watched X for Y minutes" → Convert to navigation, playback, and watch duration steps
+- "User is logged in" → Add login steps at the beginning
+- "User is on X page" → Add navigation steps
+- "Content has been previously watched" → Add steps to watch and exit
+
+EXAMPLES:
+BAD: preconditions: "User watched movie for 5 minutes"
+GOOD: Steps include: 1. Navigate to movie, 2. Start playback, 3. Watch for 5 minutes, 4. Exit player
+
 Each test case MUST include:
 1. title: Clear, specific test case title
 2. objective: What this test validates (1-2 sentences)
-3. preconditions: Specific setup requirements
+3. preconditions: [] (empty array - all preconditions should be steps)
 4. priority: "High", "Medium", or "Low" (Critical for security tests)
 5. testType: "functional", "performance", "security", or "accessibility"
 6. steps: Array of step objects, each with:
@@ -866,21 +907,25 @@ Format your response as a JSON array of test case objects. Example format:
 
   parseTestCases(text) {
     try {
+      let result;
+
       // First try to find JSON array in the text
       const jsonMatch = text.match(/```json\s*([\s\S]*?)```/);
       if (jsonMatch) {
-        const jsonContent = jsonMatch[1];
+        const jsonContent = jsonMatch[1].trim();
+        logger.info(`Attempting to parse JSON content, length: ${jsonContent.length}`);
+        logger.info(`JSON content preview: ${jsonContent.substring(0, 50)}`);
         const parsed = JSON.parse(jsonContent);
-        
+
         // Convert the format to match what frontend expects
         if (Array.isArray(parsed)) {
-          return {
+          result = {
             testCases: parsed.map(tc => ({
-              title: tc.Title || tc.title,
-              objective: tc.Description || tc.description || tc.objective,
-              preconditions: Array.isArray(tc.Preconditions) 
-                ? tc.Preconditions.join('; ') 
-                : tc.Preconditions || tc.preconditions || '',
+              title: tc.Title || tc.title || tc.name || 'Test Case',
+              objective: tc.Description || tc.description || tc.objective || '',
+              preconditions: Array.isArray(tc.Preconditions)
+                ? tc.Preconditions
+                : (tc.Preconditions || tc.preconditions || '').split(';').filter(p => p.trim()),
               steps: this.convertStepsFormat(tc.Steps || tc.steps),
               expectedResult: tc['Expected Result'] || tc.expectedResult || tc.expected_result || '',
               priority: tc.Priority || tc.priority || 'Medium',
@@ -893,27 +938,54 @@ Format your response as a JSON array of test case objects. Example format:
               wcagLevel: tc.wcagLevel || tc.wcag_level
             }))
           };
+        } else if (parsed.testCases) {
+          // Handle response with testCases property
+          result = parsed;
+        } else {
+          result = { testCases: [parsed] };
+        }
+      } else {
+        // Try direct JSON parse
+        const parsed = JSON.parse(text);
+        if (parsed.testCases) {
+          result = parsed;
+        } else if (Array.isArray(parsed)) {
+          result = { testCases: parsed };
+        } else {
+          result = { testCases: [parsed] };
         }
       }
-      
-      // Try direct JSON parse
-      const parsed = JSON.parse(text);
-      if (parsed.testCases) {
-        return parsed;
+
+      // Transform preconditions into test steps
+      if (result.testCases && Array.isArray(result.testCases)) {
+        result.testCases = preconditionTransformer.processTestCases(result.testCases);
+        logger.info('Transformed preconditions into test steps for all test cases');
       }
-      if (Array.isArray(parsed)) {
-        return { testCases: parsed };
-      }
-      
-      return { testCases: [parsed] };
+
+      return result;
     } catch (error) {
       logger.error('Failed to parse Gemini response, using fallback:', error.message);
+      logger.error('Parse error details:', error.stack);
+      logger.error('Text that failed to parse (first 500 chars):', text.substring(0, 500));
+
+      // Try to extract JSON directly if it's there without markdown
+      try {
+        const cleanText = text.replace(/```json\s*/g, '').replace(/```/g, '').trim();
+        const parsed = JSON.parse(cleanText);
+        if (Array.isArray(parsed)) {
+          return { testCases: parsed };
+        } else if (parsed.testCases) {
+          return parsed;
+        }
+      } catch (e) {
+        logger.error('Secondary parse attempt also failed:', e.message);
+      }
       // Fallback to simple format
-      return {
+      const fallbackResult = {
         testCases: [{
           title: 'Generated Test Case',
           objective: 'AI-generated test case',
-          preconditions: 'System is accessible',
+          preconditions: ['System is accessible'],
           steps: [
             { action: 'Perform test action', expectedResult: 'Expected outcome' }
           ],
@@ -921,6 +993,11 @@ Format your response as a JSON array of test case objects. Example format:
           priority: 'Medium'
         }]
       };
+
+      // Transform preconditions even for fallback
+      fallbackResult.testCases = preconditionTransformer.processTestCases(fallbackResult.testCases);
+
+      return fallbackResult;
     }
   }
 
@@ -1777,7 +1854,16 @@ Format your response as a JSON array of test case objects. Example format:
   }
 
   generateEdenTestCases(ticket, options = {}) {
-    const { style = 'BDD' } = options;
+    const {
+      style = 'BDD',
+      testTypes = ['functional'],
+      includePerformance = false,
+      includeSecurity = false,
+      includeAccessibility = false,
+      testCount = 10
+    } = options;
+
+    logger.info(`generateEdenTestCases - testCount=${testCount}, testTypes=${JSON.stringify(testTypes)}`);
     const testCases = [];
     
     if (ticket.type?.toLowerCase() === 'bug') {
@@ -1874,7 +1960,76 @@ Format your response as a JSON array of test case objects. Example format:
         expectedResult: 'All edge cases handled appropriately'
       });
     }
-    
+
+    // Add more functional tests if needed to meet testCount
+    const functionalCount = testTypes.includes('functional') ? testCount : 0;
+    while (testCases.length < functionalCount) {
+      const testIndex = testCases.length + 1;
+      testCases.push({
+        testType: 'functional',
+        title: `Eden Additional Test ${testIndex}: ${ticket.summary}`,
+        objective: `Additional validation for Eden feature`,
+        preconditions: 'Eden environment accessible',
+        priority: testIndex <= 3 ? 'High' : 'Medium',
+        steps: [
+          { action: 'Access Eden feature', expectedResult: 'Feature loads correctly' },
+          { action: `Perform test scenario ${testIndex}`, expectedResult: 'Scenario completes successfully' },
+          { action: 'Verify Eden events', expectedResult: 'Events fire correctly' }
+        ],
+        expectedResult: 'Test scenario passes'
+      });
+    }
+
+    // Add non-functional tests based on options
+    if (includePerformance || testTypes.includes('performance')) {
+      testCases.push({
+        testType: 'performance',
+        title: `Eden Performance: ${ticket.summary}`,
+        objective: 'Validate Eden feature performance',
+        preconditions: 'Performance monitoring configured',
+        priority: 'High',
+        steps: [
+          { action: 'Set up performance monitoring', expectedResult: 'Monitoring active' },
+          { action: 'Execute Eden flow under load', expectedResult: 'Flow completes within SLA' },
+          { action: 'Measure Eden event latency', expectedResult: 'Events fire within acceptable time' }
+        ],
+        expectedResult: 'Eden performance meets requirements'
+      });
+    }
+
+    if (includeSecurity || testTypes.includes('security')) {
+      testCases.push({
+        testType: 'security',
+        title: `Eden Security: ${ticket.summary}`,
+        objective: 'Validate Eden security controls',
+        preconditions: 'Security testing tools available',
+        priority: 'Critical',
+        steps: [
+          { action: 'Verify authentication requirements', expectedResult: 'Auth properly enforced' },
+          { action: 'Test subscription validation', expectedResult: 'Only valid subscriptions accepted' },
+          { action: 'Check for data exposure', expectedResult: 'No sensitive data leaked' }
+        ],
+        expectedResult: 'Eden security controls are effective'
+      });
+    }
+
+    if (includeAccessibility || testTypes.includes('accessibility')) {
+      testCases.push({
+        testType: 'accessibility',
+        title: `Eden Accessibility: ${ticket.summary}`,
+        objective: 'Validate WCAG 2.1 compliance for Eden features',
+        preconditions: 'Screen reader and accessibility tools available',
+        priority: 'High',
+        steps: [
+          { action: 'Test with screen reader', expectedResult: 'All content is accessible' },
+          { action: 'Verify keyboard navigation', expectedResult: 'All actions accessible via keyboard' },
+          { action: 'Check color contrast', expectedResult: 'Meets WCAG AA standards' }
+        ],
+        expectedResult: 'Eden feature is WCAG compliant'
+      });
+    }
+
+    logger.info(`Eden test generation completed: ${testCases.length} tests`);
     return { testCases, style };
   }
 
@@ -2342,6 +2497,36 @@ Return a JSON object with:
       
       // Add specific instructions for code generation
       const enhancedPrompt = prompt + `
+
+CRITICAL CODE GENERATION RULES TO PREVENT ERRORS:
+=================================================
+1. NEVER DUPLICATE CODE LINES - Each line should appear only once
+   WRONG: Two identical lines like:
+   boolean buttonDisplayed = containerScreen().isPrimaryActionButtonDisplayed();
+   boolean buttonDisplayed = containerScreen().isPrimaryActionButtonDisplayed();
+
+2. NEVER DUPLICATE METHOD CALLS - Don't call the same method multiple times without reason
+   WRONG: containerScreen().playContent(); appearing twice in a row
+
+3. USE MEANINGFUL METHOD NAMES - Extract key words from test description
+   NEVER use: testTestgenerated() or testGenerated()
+   ALWAYS extract from description - if it says "Restart button is not displayed when..."
+   then use: testRestartButtonNotDisplayedWhen...()
+
+   METHOD NAME MUST include the element being tested and the condition
+
+4. TEST ASSERTIONS MUST EXACTLY MATCH TEST DESCRIPTION:
+   If description says "button is NOT displayed" or "is hidden":
+   Use: softAssert.assertFalse(containerScreen().isRestartButtonDisplayed(), "Restart button should NOT be displayed");
+
+   If description says "button IS displayed" or "appears":
+   Use: softAssert.assertTrue(containerScreen().isRestartButtonDisplayed(), "Restart button SHOULD be displayed");
+
+   CRITICAL: The PRIMARY assertion MUST directly test what the description states!
+   Remove any unrelated assertions not mentioned in the description
+
+5. EACH VARIABLE NAME MUST BE UNIQUE - Don't redeclare the same variable
+6. TEST FLOW MUST BE LOGICAL - Actions should follow a sensible sequence
 
 OUTPUT FORMAT:
 ==============
