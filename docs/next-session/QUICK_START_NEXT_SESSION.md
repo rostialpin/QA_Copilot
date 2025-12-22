@@ -62,12 +62,12 @@ npm run dev
 ```
 Phase 1: Foundation          Phase 2: Core Agents       Phase 3: Learning
 ──────────────────          ─────────────────────      ─────────────────
-[■■■■■■■■■■] 100%           [■■■■■■░░░░] 60%           [■■■■░░░░░░] 40%
+[■■■■■■■■■■] 100%           [■■■■■■■■■■] 100%          [■■■■░░░░░░] 40%
 • Hybrid RAG ✓              • Scenario Decomposer ✓    • Learned Patterns ✓
 • OpenRouter ✓              • Action Knowledge Base ✓  • Terminology Translator
-• Context Agent ✓           • Action Mapper            • Learning Loop (partial ✓)
-• Architecture Doc ✓        • Prerequisite Builder     • Keyword Enrichment
-                            • Test Composer            • User Feedback UI
+• Context Agent ✓           • Action Mapper ✓          • Learning Loop (partial ✓)
+• Architecture Doc ✓        • Prerequisite Builder ✓   • Keyword Enrichment
+                            • Test Composer ✓          • User Feedback UI
 
 Phase 4: Generation          Phase 5: Dynamic Models    Phase 6: Integration
 ───────────────────         ──────────────────────     ────────────────────
@@ -94,9 +94,9 @@ Phase 4: Generation          Phase 5: Dynamic Models    Phase 6: Integration
 
 ---
 
-## Phase 2: Core Agents (IN PROGRESS)
+## Phase 2: Core Agents (COMPLETED)
 
-### Status: 🔄 60% Complete
+### Status: ✅ 100% Complete
 
 ### 2.1 Action Knowledge Base Service ✅ COMPLETED
 **Priority**: HIGH | **Effort**: 2-3 days | **Status**: DONE
@@ -163,41 +163,48 @@ curl -X POST .../decompose -d '{"scenario": "press play button"}'
 # → decomposition_method: "rules_with_learning", learned_patterns_used: 1
 ```
 
-### 2.3 Action-to-Method Mapper Agent
-**Priority**: HIGH | **Effort**: 1-2 days
+### 2.3 Action-to-Method Mapper Agent ✅ COMPLETED
+**Priority**: HIGH | **Effort**: 1-2 days | **Status**: DONE
 
-- [ ] Create `agents/actionMapperAgent.js`
-  - [ ] Query Action Knowledge Base for each step
-  - [ ] Semantic search fallback for unknown actions
-  - [ ] Confidence scoring
-  - [ ] Mark unmapped actions for Component Generator
+- [x] Create `agents/actionMapperAgent.js`
+  - [x] Query Action Knowledge Base for each step
+  - [x] Semantic search fallback for unknown actions
+  - [x] Confidence scoring (threshold: 0.6)
+  - [x] Mark unmapped actions for Component Generator
+  - [x] 4-strategy lookup: learned patterns → atomic actions → composite actions → hybrid RAG
+  - [x] Auto-learn new mappings from RAG results
 
-- [ ] Mapping logic:
-  ```javascript
-  // For each decomposed step:
-  // 1. Direct lookup in Knowledge Base
-  // 2. Semantic search if not found
-  // 3. Mark as "unmapped" if confidence < 0.6
-  ```
+### 2.4 Prerequisite Builder Agent ✅ COMPLETED
+**Priority**: MEDIUM | **Effort**: 1 day | **Status**: DONE
 
-### 2.4 Prerequisite Builder Agent
-**Priority**: MEDIUM | **Effort**: 1 day
+- [x] Create `agents/prerequisiteBuilderAgent.js`
+  - [x] Build navigation path using screen graph (BFS shortest path)
+  - [x] Collect required imports from mappings and navigation
+  - [x] Identify test data requirements
+  - [x] Generate @BeforeMethod setup code
+  - [x] Support 15+ screen types with navigation paths
 
-- [ ] Create `agents/prerequisiteBuilderAgent.js`
-  - [ ] Build navigation path to target screen
-  - [ ] Collect required imports
-  - [ ] Identify test data requirements
-  - [ ] Generate @BeforeMethod setup code
+### 2.5 Test Composer Agent ✅ COMPLETED
+**Priority**: MEDIUM | **Effort**: 1-2 days | **Status**: DONE
 
-### 2.5 Test Composer Agent
-**Priority**: MEDIUM | **Effort**: 1-2 days
+- [x] Create `agents/testComposerAgent.js`
+  - [x] Assemble complete test class
+  - [x] Apply code patterns from existing tests
+  - [x] Format with proper indentation (4 spaces)
+  - [x] Add TestNG annotations (@Test, @BeforeMethod, @AfterMethod)
+  - [x] Generate JavaDoc comments with metadata
+  - [x] Warning system for unmapped/low-confidence actions
 
-- [ ] Create `agents/testComposerAgent.js`
-  - [ ] Assemble complete test class
-  - [ ] Apply code patterns from existing tests
-  - [ ] Format with proper indentation
-  - [ ] Add TestNG annotations
-  - [ ] Generate JavaDoc comments
+### 2.6 Multi-Agent Routes ✅ COMPLETED
+**Priority**: HIGH | **Effort**: 0.5 day | **Status**: DONE
+
+- [x] Create `routes/multiAgent.routes.js`
+  - [x] POST `/api/multi-agent/generate` - Full pipeline endpoint
+  - [x] POST `/api/multi-agent/map` - Action mapper only
+  - [x] POST `/api/multi-agent/prerequisites` - Prerequisite builder only
+  - [x] POST `/api/multi-agent/compose` - Test composer only
+  - [x] GET `/api/multi-agent/info` - Pipeline capabilities
+  - [x] GET `/api/multi-agent/stats` - Agent statistics
 
 ---
 
@@ -337,11 +344,24 @@ curl -X POST .../decompose -d '{"scenario": "press play button"}'
   - AI fallback when rules not confident (< 0.7)
   - **AI Learning**: Patterns from AI stored permanently as new rules
   - Learned patterns enhance rule engine for all future scenarios
-- [x] **Routes** - Full API for both services
+- [x] **Action Mapper Agent** - 4-strategy method lookup
+  - Learned patterns → atomic actions → composite → hybrid RAG
+  - Auto-learns new mappings from successful RAG lookups
+  - Confidence threshold: 0.6
+- [x] **Prerequisite Builder Agent** - Navigation path builder
+  - Screen graph with BFS shortest-path algorithm
+  - 15+ screen types supported
+  - Generates @BeforeMethod setup code
+- [x] **Test Composer Agent** - Full test class generator
+  - TestNG annotations, JavaDoc, proper formatting
+  - Warning system for unmapped actions
+- [x] **Multi-Agent Routes** - Full pipeline API
+  - `/api/multi-agent/generate` - End-to-end generation
+  - Individual agent endpoints for debugging
+- [x] **Routes** - Full API for all services
   - `/api/knowledge-base/*` - 12 endpoints
   - `/api/scenario-decomposer/*` - 4 endpoints
-- [x] **Testing** - End-to-end learning flow verified
-  - AI decomposition → patterns learned → reused in different scenario
+  - `/api/multi-agent/*` - 6 endpoints
 
 **Key Innovation**: One AI call teaches the system forever
 - AI used once → patterns extracted → stored in ChromaDB
@@ -353,6 +373,10 @@ curl -X POST .../decompose -d '{"scenario": "press play button"}'
 - `backend/src/routes/actionKnowledgeBase.routes.js` (NEW - 460+ lines)
 - `backend/src/agents/scenarioDecomposerAgent.js` (NEW - 650+ lines)
 - `backend/src/routes/scenarioDecomposer.routes.js` (NEW - 165 lines)
+- `backend/src/agents/actionMapperAgent.js` (NEW - 350+ lines)
+- `backend/src/agents/prerequisiteBuilderAgent.js` (NEW - 320+ lines)
+- `backend/src/agents/testComposerAgent.js` (NEW - 450+ lines)
+- `backend/src/routes/multiAgent.routes.js` (NEW - 280+ lines)
 - `backend/src/routes/index.js` (MODIFIED - added new routes)
 
 ---
@@ -372,34 +396,34 @@ curl -X POST .../decompose -d '{"scenario": "press play button"}'
 
 ## TOP PRIORITY FOR NEXT SESSION
 
-### Priority #1: Action-to-Method Mapper Agent (Phase 2.3)
-**File**: `backend/src/agents/actionMapperAgent.js`
-**Effort**: 1-2 hours
+### Priority #1: Component Generator Agent (Phase 4.1)
+**File**: `backend/src/agents/componentGeneratorAgent.js`
+**Effort**: 2-3 hours
 
 Tasks:
-- [ ] Query Action Knowledge Base for each decomposed step
-- [ ] Semantic search fallback for unknown actions
-- [ ] Confidence scoring for matches
-- [ ] Mark unmapped actions for Component Generator
+- [ ] Generate new Page Object methods for unmapped actions
+- [ ] Generate property file entries for new locators
+- [ ] Smart locator generation (Android/iOS/Web)
+- [ ] Follow existing code patterns from repository
 
-### Priority #2: Prerequisite Builder Agent (Phase 2.4)
-**File**: `backend/src/agents/prerequisiteBuilderAgent.js`
-**Effort**: 1-2 hours
-
-Tasks:
-- [ ] Build navigation path to target screen
-- [ ] Collect required imports
-- [ ] Identify test data requirements
-- [ ] Generate @BeforeMethod setup code
-
-### Priority #3: Test Composer Agent (Phase 2.5)
-**File**: `backend/src/agents/testComposerAgent.js`
-**Effort**: 1-2 hours
+### Priority #2: End-to-End Testing with Real Repository (Phase 6.3)
+**Effort**: 2 hours
 
 Tasks:
-- [ ] Assemble complete test class from mapped steps
-- [ ] Apply code patterns from existing tests
-- [ ] Add TestNG annotations and JavaDoc
+- [ ] Index actual test repository into Hybrid RAG
+- [ ] Test full pipeline with real scenarios
+- [ ] Validate generated code compiles
+- [ ] Measure pipeline performance
+
+### Priority #3: Terminology Translation Agent (Phase 3.1)
+**File**: `backend/src/agents/terminologyTranslatorAgent.js`
+**Effort**: 2 hours
+
+Tasks:
+- [ ] Web search for unknown terms
+- [ ] Code documentation search
+- [ ] Ask user only as last resort
+- [ ] Store learned mappings
 
 ---
 
@@ -510,10 +534,17 @@ curl -X POST http://localhost:3001/api/context-aware-agent/generate \
     "hints": {"primaryScreen": "player"}
   }'
 
-# 3. Future: Multi-agent pipeline
+# 3. Multi-agent pipeline (NOW AVAILABLE!)
 curl -X POST http://localhost:3001/api/multi-agent/generate \
   -H "Content-Type: application/json" \
-  -d '{"scenario": "Verify user can watch video for 30 seconds"}'
+  -d '{
+    "scenario": "Verify user can watch video for 30 seconds",
+    "platform": "ctv",
+    "brand": "pplus"
+  }'
+
+# 4. Check pipeline info
+curl http://localhost:3001/api/multi-agent/info
 ```
 
 ---
