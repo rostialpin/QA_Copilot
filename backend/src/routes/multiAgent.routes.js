@@ -15,6 +15,7 @@ import { scenarioDecomposerAgent } from '../agents/scenarioDecomposerAgent.js';
 import { actionMapperAgent } from '../agents/actionMapperAgent.js';
 import { prerequisiteBuilderAgent } from '../agents/prerequisiteBuilderAgent.js';
 import { testComposerAgent } from '../agents/testComposerAgent.js';
+import { componentGeneratorAgent } from '../agents/componentGeneratorAgent.js';
 import { logger } from '../utils/logger.js';
 
 const router = Router();
@@ -125,7 +126,7 @@ router.post('/generate', async (req, res) => {
         platform,
         brand,
         includeLogin,
-        targetScreen: decomposition.primaryScreen
+        targetScreen: decomposition.primary_screen || decomposition.primaryScreen
       }
     );
 
@@ -182,6 +183,36 @@ router.post('/generate', async (req, res) => {
       warnings: composedTest.warnings?.length || 0
     };
 
+    // ========== STAGE 5: Generate Components for Unmapped Actions ==========
+    let generatedComponents = null;
+    if (mappingResult.unmapped && mappingResult.unmapped.length > 0) {
+      logger.debug('Stage 5: Component Generation');
+      try {
+        await componentGeneratorAgent.initialize();
+        generatedComponents = await componentGeneratorAgent.generateComponents(
+          mappingResult.unmapped,
+          {
+            platform,
+            brand,
+            targetScreen: prerequisites.targetScreen
+          }
+        );
+
+        pipelineResults.stages.componentGeneration = {
+          success: true,
+          methodsGenerated: generatedComponents.newMethods?.length || 0,
+          locatorsGenerated: generatedComponents.newLocators?.length || 0,
+          propertiesGenerated: generatedComponents.newProperties?.length || 0
+        };
+      } catch (error) {
+        logger.warn(`Component generation failed: ${error.message}`);
+        pipelineResults.stages.componentGeneration = {
+          success: false,
+          error: error.message
+        };
+      }
+    }
+
     // Calculate total time
     const totalTime = Date.now() - startTime;
 
@@ -196,6 +227,12 @@ router.post('/generate', async (req, res) => {
       metadata: composedTest.metadata,
       warnings: composedTest.warnings,
       unmappedActions: composedTest.unmappedActions,
+      generatedComponents: generatedComponents ? {
+        newMethods: generatedComponents.newMethods,
+        newProperties: generatedComponents.newProperties,
+        newLocators: generatedComponents.newLocators,
+        statistics: generatedComponents.statistics
+      } : null,
       pipeline: pipelineResults,
       timing: {
         totalMs: totalTime
@@ -204,7 +241,8 @@ router.post('/generate', async (req, res) => {
       debug: debug ? {
         decomposition,
         mapping: mappingResult,
-        prerequisites
+        prerequisites,
+        generatedComponents
       } : undefined
     });
 
@@ -247,6 +285,11 @@ router.get('/info', (req, res) => {
         name: 'TestComposerAgent',
         role: 'Assemble complete test classes',
         features: ['testng-annotations', 'javadoc', 'code-formatting']
+      },
+      {
+        name: 'ComponentGeneratorAgent',
+        role: 'Generate new methods and locators for unmapped actions',
+        features: ['smart-locators', 'pattern-learning', 'multi-platform']
       }
     ],
     supportedPlatforms: ['ctv', 'mobile', 'web', 'html5', 'hdmi'],
@@ -353,6 +396,40 @@ router.post('/compose', async (req, res) => {
 });
 
 /**
+ * Component Generator - Generate code for unmapped actions
+ * POST /api/multi-agent/generate-components
+ */
+router.post('/generate-components', async (req, res) => {
+  try {
+    const { unmappedActions, platform, brand, targetScreen } = req.body;
+
+    if (!unmappedActions || !Array.isArray(unmappedActions)) {
+      return res.status(400).json({
+        success: false,
+        error: 'unmappedActions array is required'
+      });
+    }
+
+    await componentGeneratorAgent.initialize();
+    const result = await componentGeneratorAgent.generateComponents(
+      unmappedActions,
+      { platform, brand, targetScreen }
+    );
+
+    // Also return formatted code
+    if (result.success) {
+      result.formattedJavaCode = componentGeneratorAgent.formatAsJavaCode(result);
+      result.formattedProperties = componentGeneratorAgent.formatAsProperties(result);
+    }
+
+    res.json(result);
+  } catch (error) {
+    logger.error('Component generation error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
  * Initialize all agents
  * POST /api/multi-agent/initialize
  */
@@ -362,7 +439,7 @@ router.post('/initialize', async (req, res) => {
     res.json({
       success: true,
       message: 'All agents initialized',
-      agents: ['ScenarioDecomposer', 'ActionMapper', 'PrerequisiteBuilder', 'TestComposer']
+      agents: ['ScenarioDecomposer', 'ActionMapper', 'PrerequisiteBuilder', 'TestComposer', 'ComponentGenerator']
     });
   } catch (error) {
     logger.error('Agent initialization error:', error);
@@ -382,7 +459,8 @@ router.get('/stats', async (req, res) => {
         scenarioDecomposer: scenarioDecomposerAgent.getStats ? scenarioDecomposerAgent.getStats() : {},
         actionMapper: actionMapperAgent.getStats(),
         prerequisiteBuilder: prerequisiteBuilderAgent.getStats(),
-        testComposer: testComposerAgent.getStats()
+        testComposer: testComposerAgent.getStats(),
+        componentGenerator: componentGeneratorAgent.getStats()
       }
     });
   } catch (error) {
@@ -397,7 +475,8 @@ async function initializeAgents() {
     scenarioDecomposerAgent.initialize ? scenarioDecomposerAgent.initialize() : Promise.resolve(),
     actionMapperAgent.initialize(),
     prerequisiteBuilderAgent.initialize(),
-    testComposerAgent.initialize()
+    testComposerAgent.initialize(),
+    componentGeneratorAgent.initialize()
   ]);
 }
 

@@ -195,9 +195,13 @@ class TestComposerAgent {
   generateImports(mappingResult, prerequisites) {
     const imports = new Set(this.standardImports);
 
-    // Add screen imports
+    // Add BaseTest first
+    imports.add('com.example.base.BaseTest');
+
+    // Add screen imports (exclude BaseTest since it's not a screen)
     if (prerequisites?.prerequisites?.imports) {
       for (const imp of prerequisites.prerequisites.imports) {
+        if (imp === 'BaseTest') continue; // Skip - already added above
         if (!imp.startsWith('org.') && !imp.startsWith('java.')) {
           imports.add(`com.example.screens.${imp}`);
         } else {
@@ -205,9 +209,6 @@ class TestComposerAgent {
         }
       }
     }
-
-    // Add BaseTest
-    imports.add('com.example.base.BaseTest');
 
     // Sort and format
     const sorted = Array.from(imports).sort();

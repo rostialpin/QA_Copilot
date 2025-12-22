@@ -103,15 +103,10 @@ class PrerequisiteBuilderAgent {
     } = options;
 
     // Determine target screen from mappings if not provided
-    const target = targetScreen || this.inferTargetScreen(mappingResult.mappings);
+    // Fallback to 'home' if nothing can be inferred
+    const target = targetScreen || this.inferTargetScreen(mappingResult.mappings) || 'home';
 
-    if (!target) {
-      return {
-        success: false,
-        error: 'Could not determine target screen',
-        prerequisites: null
-      };
-    }
+    logger.debug(`Target screen resolved to: ${target}`);
 
     logger.debug(`Building prerequisites for target screen: ${target}`);
 
