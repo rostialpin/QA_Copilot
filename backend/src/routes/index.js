@@ -12,6 +12,8 @@ import aiRouter from './ai.routes.js';
 import patternLearningRouter from './patternLearning.routes.js';
 import contextAwareAgentRouter from './contextAwareAgent.routes.js';
 import hybridRAGRouter from './hybridRAG.routes.js';
+import actionKnowledgeBaseRouter from './actionKnowledgeBase.routes.js';
+import scenarioDecomposerRouter from './scenarioDecomposer.routes.js';
 
 export const router = express.Router();
 
@@ -34,3 +36,5 @@ router.use('/ai', aiRouter);
 router.use('/pattern-learning', patternLearningRouter);
 router.use('/context-aware-agent', contextAwareAgentRouter);
 router.use('/hybrid-rag', hybridRAGRouter);
+router.use('/knowledge-base', actionKnowledgeBaseRouter);
+router.use('/scenario-decomposer', scenarioDecomposerRouter);
