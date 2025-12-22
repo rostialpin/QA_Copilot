@@ -3,9 +3,12 @@
  *
  * Assembles all pieces from the pipeline into a complete, runnable test class:
  * - Combines scenario, prerequisites, and method mappings
- * - Generates proper Java/TestNG structure
- * - Applies code patterns from existing tests
- * - Adds appropriate annotations and documentation
+ * - Generates proper Java/TestNG structure matching mqe-unified-oao-tests format
+ * - Uses @Factory pattern with TestParams
+ * - Adds platform/brand/locale annotations
+ * - Uses screen accessor methods (homeScreen(), playerScreen(), etc.)
+ * - Implements SoftAssert with assertAll() pattern
+ * - Adds dual step annotations (Allure + ReportPortal)
  *
  * @see /docs/architecture/multi-agent-test-generation-architecture.md
  */
@@ -14,23 +17,107 @@ import { logger } from '../utils/logger.js';
 
 class TestComposerAgent {
   constructor() {
-    // Default package structure
-    this.defaultPackage = 'com.example.tests';
+    // Package structure matching mqe-unified-oao-tests
+    this.basePackage = 'com.viacom.unified.tests';
 
-    // TestNG annotation imports
-    this.standardImports = [
-      'org.testng.annotations.Test',
-      'org.testng.annotations.BeforeMethod',
-      'org.testng.annotations.AfterMethod',
-      'org.testng.Assert'
-    ];
+    // Feature to subpackage mapping
+    this.featurePackageMap = {
+      'playback': 'player.playback',
+      'player': 'player.controls',
+      'search': 'search',
+      'navigation': 'navigation',
+      'settings': 'settings',
+      'login': 'account.authentication',
+      'authentication': 'account.authentication',
+      'account': 'account.accountsettings',
+      'livetv': 'livetv',
+      'live': 'livetv',
+      'container': 'container',
+      'accessibility': 'accessibility',
+      'deeplink': 'deeplink',
+      'ads': 'ars.advertisement',
+      'tve': 'tve',
+      'home': 'home',
+      'browse': 'browse'
+    };
+
+    // Platform type mappings
+    this.platformTypes = {
+      'ctv': ['PlatformType.ANDROID_TV', 'PlatformType.FIRE_TV', 'PlatformType.ROKU', 'PlatformType.APPLE_TV'],
+      'android_tv': ['PlatformType.ANDROID_TV'],
+      'fire_tv': ['PlatformType.FIRE_TV'],
+      'roku': ['PlatformType.ROKU'],
+      'apple_tv': ['PlatformType.APPLE_TV'],
+      'mobile': ['PlatformType.ANDROID', 'PlatformType.IOS'],
+      'android': ['PlatformType.ANDROID'],
+      'ios': ['PlatformType.IOS'],
+      'web': ['PlatformType.TIZEN_TV', 'PlatformType.LG_WEBOS', 'PlatformType.VIZIO', 'PlatformType.HISENSE_TV'],
+      'all': ['PlatformType.ANDROID_TV', 'PlatformType.FIRE_TV', 'PlatformType.ROKU', 'PlatformType.APPLE_TV', 'PlatformType.TIZEN_TV', 'PlatformType.LG_WEBOS', 'PlatformType.VIZIO', 'PlatformType.HISENSE_TV']
+    };
+
+    // Brand mappings
+    this.brandTypes = {
+      'bet_plus': 'Brand.BET_PLUS',
+      'betplus': 'Brand.BET_PLUS',
+      'vh1': 'Brand.VH1',
+      'bet': 'Brand.BET',
+      'mtv': 'Brand.MTV',
+      'cmt': 'Brand.CMT',
+      'paramount': 'Brand.PARAMOUNT_PLUS',
+      'pplus': 'Brand.PARAMOUNT_PLUS'
+    };
+
+    // Screen accessor method mappings
+    this.screenAccessors = {
+      'HomeScreen': 'homeScreen()',
+      'PlayerScreen': 'playerScreen()',
+      'SearchScreen': 'searchScreen()',
+      'ContainerScreen': 'containerScreen()',
+      'SettingsScreen': 'settingsScreen()',
+      'LoginScreen': 'signInScreen()',
+      'SignInScreen': 'signInScreen()',
+      'ProfileScreen': 'profileScreen()',
+      'LiveTVScreen': 'liveTVScreen()',
+      'BrowseScreen': 'browseScreen()',
+      'WelcomeScreen': 'welcomeScreen()',
+      'AccountScreen': 'accountScreen()',
+      'TvProviderScreen': 'tvProviderScreen()',
+      'LegalScreen': 'legalScreen()',
+      'AccessibilityScreen': 'accessibilityScreen()'
+    };
+
+    // Test group constants
+    this.groupConstants = {
+      'functional': ['GroupConstants.FULL', 'GroupConstants.REGRESSION'],
+      'smoke': ['GroupConstants.SMOKE', 'GroupConstants.PIPELINE'],
+      'e2e': ['GroupConstants.FULL', 'GroupConstants.E2E'],
+      'playback': ['GroupConstants.PLAYBACK', 'GroupConstants.ITEM_PLAYBACK'],
+      'search': ['GroupConstants.SEARCH'],
+      'navigation': ['GroupConstants.NAVIGATION'],
+      'accessibility': ['GroupConstants.ACCESSIBILITY']
+    };
+
+    // Feature constants
+    this.featureConstants = {
+      'playback': 'FeatureConstants.PLAYBACK',
+      'search': 'FeatureConstants.SEARCH',
+      'navigation': 'FeatureConstants.NAVIGATION',
+      'settings': 'FeatureConstants.SETTINGS',
+      'login': 'FeatureConstants.AUTHENTICATION',
+      'livetv': 'FeatureConstants.LIVE_TV',
+      'container': 'FeatureConstants.CONTAINER',
+      'player': 'FeatureConstants.PLAYER',
+      'home': 'FeatureConstants.HOME',
+      'browse': 'FeatureConstants.BROWSE'
+    };
 
     // Code style settings
     this.codeStyle = {
       indent: '    ', // 4 spaces
       lineWidth: 120,
-      addJavadoc: true,
-      addTimestamp: true
+      addJavadoc: false, // mqe-unified doesn't use javadoc on methods
+      addCopyright: true,
+      copyrightYear: new Date().getFullYear()
     };
   }
 
@@ -38,7 +125,7 @@ class TestComposerAgent {
    * Initialize the agent
    */
   async initialize() {
-    logger.info('TestComposerAgent initialized');
+    logger.info('TestComposerAgent initialized (mqe-unified-oao-tests format)');
   }
 
   /**
@@ -54,19 +141,26 @@ class TestComposerAgent {
   async composeTest(scenario, decomposition, mappingResult, prerequisites, options = {}) {
     const {
       className = null,
-      packageName = this.defaultPackage,
-      platform = null,
+      packageName = null,
+      platform = 'ctv',
       brand = null,
       testType = 'functional',
-      includeComments = true
+      tmsLinks = [],
+      feature = null
     } = options;
+
+    // Infer feature from scenario or decomposition
+    const inferredFeature = feature || this.inferFeature(scenario.title, decomposition);
+
+    // Generate package name based on feature
+    const finalPackage = packageName || this.generatePackageName(inferredFeature);
 
     // Generate class name if not provided
     const finalClassName = className || this.generateClassName(scenario.title, testType);
 
     // Build the test code
     const code = this.buildTestClass({
-      packageName,
+      packageName: finalPackage,
       className: finalClassName,
       scenario,
       decomposition,
@@ -75,7 +169,8 @@ class TestComposerAgent {
       platform,
       brand,
       testType,
-      includeComments
+      tmsLinks,
+      feature: inferredFeature
     });
 
     // Generate metadata
@@ -86,7 +181,8 @@ class TestComposerAgent {
       prerequisites,
       testType,
       platform,
-      brand
+      brand,
+      feature: inferredFeature
     });
 
     return {
@@ -94,11 +190,57 @@ class TestComposerAgent {
       code,
       metadata,
       className: finalClassName,
-      packageName,
-      fullClassName: `${packageName}.${finalClassName}`,
+      packageName: finalPackage,
+      fullClassName: `${finalPackage}.${finalClassName}`,
       unmappedActions: mappingResult.unmapped || [],
       warnings: this.generateWarnings(mappingResult, prerequisites)
     };
+  }
+
+  /**
+   * Infer feature from scenario title
+   */
+  inferFeature(title, decomposition) {
+    const titleLower = title.toLowerCase();
+
+    // Check for feature keywords
+    const featureKeywords = {
+      'playback': ['play', 'video', 'episode', 'movie', 'stream', 'watch'],
+      'search': ['search', 'find', 'query'],
+      'navigation': ['navigate', 'menu', 'browse', 'scroll'],
+      'settings': ['settings', 'preferences', 'config'],
+      'login': ['login', 'sign in', 'authenticate', 'credentials'],
+      'player': ['player', 'controls', 'pause', 'resume', 'seek'],
+      'livetv': ['live', 'channel', 'tv guide'],
+      'container': ['container', 'show', 'series', 'season'],
+      'home': ['home', 'landing', 'main screen']
+    };
+
+    for (const [feature, keywords] of Object.entries(featureKeywords)) {
+      if (keywords.some(kw => titleLower.includes(kw))) {
+        return feature;
+      }
+    }
+
+    // Check decomposition primary screen
+    const primaryScreen = decomposition?.primary_screen || decomposition?.primaryScreen;
+    if (primaryScreen) {
+      const screenLower = primaryScreen.toLowerCase();
+      if (screenLower.includes('player')) return 'playback';
+      if (screenLower.includes('search')) return 'search';
+      if (screenLower.includes('home')) return 'home';
+      if (screenLower.includes('container')) return 'container';
+    }
+
+    return 'functional'; // default
+  }
+
+  /**
+   * Generate package name based on feature
+   */
+  generatePackageName(feature) {
+    const subPackage = this.featurePackageMap[feature] || feature;
+    return `${this.basePackage}.${subPackage}`;
   }
 
   /**
@@ -113,12 +255,14 @@ class TestComposerAgent {
       .join('');
 
     // Add Test suffix if not present
-    const suffix = testType === 'smoke' ? 'SmokeTest' : 'Test';
-    return cleaned.endsWith('Test') ? cleaned : `${cleaned}${suffix}`;
+    if (cleaned.endsWith('Test')) {
+      return cleaned;
+    }
+    return `${cleaned}Test`;
   }
 
   /**
-   * Build complete test class code
+   * Build complete test class code in mqe-unified format
    */
   buildTestClass(params) {
     const {
@@ -131,57 +275,60 @@ class TestComposerAgent {
       platform,
       brand,
       testType,
-      includeComments
+      tmsLinks,
+      feature
     } = params;
 
     const lines = [];
     const indent = this.codeStyle.indent;
+
+    // Copyright header
+    if (this.codeStyle.addCopyright) {
+      lines.push('/*');
+      lines.push(` * Copyright (c) ${this.codeStyle.copyrightYear} ViacomCBS MQE Automation Team as an unpublished work. Neither`);
+      lines.push(' * this material nor any portion thereof may be copied or distributed');
+      lines.push(' * without the express written consent of ViacomCBS MQE Automation Team.');
+      lines.push(' *');
+      lines.push(' * This material also contains proprietary and confidential information');
+      lines.push(` * of ${this.codeStyle.copyrightYear} ViacomCBS MQE Automation Team and its suppliers, and may not be used by or`);
+      lines.push(' * disclosed to any person, in whole or in part, without the prior written');
+      lines.push(` * consent of ${this.codeStyle.copyrightYear} ViacomCBS MQE Automation Team.`);
+      lines.push(' */');
+      lines.push('');
+    }
 
     // Package declaration
     lines.push(`package ${packageName};`);
     lines.push('');
 
     // Imports
-    lines.push(...this.generateImports(mappingResult, prerequisites));
+    lines.push(...this.generateImports(mappingResult, prerequisites, platform, brand, feature));
     lines.push('');
-
-    // Class JavaDoc
-    if (includeComments) {
-      lines.push('/**');
-      lines.push(` * Test: ${scenario.title}`);
-      if (scenario.description) {
-        lines.push(` * ${scenario.description}`);
-      }
-      lines.push(' *');
-      lines.push(` * Test Type: ${testType}`);
-      if (platform) lines.push(` * Platform: ${platform}`);
-      if (brand) lines.push(` * Brand: ${brand}`);
-      lines.push(' *');
-      lines.push(' * Generated by QA-Copilot Multi-Agent System');
-      if (this.codeStyle.addTimestamp) {
-        lines.push(` * Generated on: ${new Date().toISOString()}`);
-      }
-      lines.push(' */');
-    }
 
     // Class declaration
     lines.push(`public class ${className} extends BaseTest {`);
     lines.push('');
 
-    // Instance variables for screens
-    lines.push(...this.generateInstanceVariables(mappingResult, prerequisites, indent));
+    // Factory constructor
+    lines.push(...this.generateFactoryConstructor(className, indent));
     lines.push('');
 
-    // @BeforeMethod
-    lines.push(...this.generateBeforeMethod(prerequisites, indent, includeComments));
-    lines.push('');
+    // Main test method with annotations
+    lines.push(...this.generateTestMethod(scenario, decomposition, mappingResult, prerequisites, {
+      indent,
+      platform,
+      brand,
+      testType,
+      tmsLinks,
+      feature
+    }));
 
-    // Main test method
-    lines.push(...this.generateTestMethod(scenario, decomposition, mappingResult, indent, includeComments));
-    lines.push('');
-
-    // @AfterMethod (optional cleanup)
-    lines.push(...this.generateAfterMethod(indent, includeComments));
+    // Helper methods (step methods)
+    const helperMethods = this.generateHelperMethods(mappingResult, indent);
+    if (helperMethods.length > 0) {
+      lines.push('');
+      lines.push(...helperMethods);
+    }
 
     // Close class
     lines.push('}');
@@ -192,189 +339,288 @@ class TestComposerAgent {
   /**
    * Generate import statements
    */
-  generateImports(mappingResult, prerequisites) {
-    const imports = new Set(this.standardImports);
+  generateImports(mappingResult, prerequisites, platform, brand, feature) {
+    const imports = [];
 
-    // Add BaseTest first
-    imports.add('com.example.base.BaseTest');
+    // Annotation imports
+    imports.push('import com.viacom.unified.annotations.AppBrand;');
+    imports.push('import com.viacom.unified.annotations.Locales;');
+    imports.push('import com.viacom.unified.annotations.Platforms;');
 
-    // Add screen imports (exclude BaseTest since it's not a screen)
-    if (prerequisites?.prerequisites?.imports) {
-      for (const imp of prerequisites.prerequisites.imports) {
-        if (imp === 'BaseTest') continue; // Skip - already added above
-        if (!imp.startsWith('org.') && !imp.startsWith('java.')) {
-          imports.add(`com.example.screens.${imp}`);
-        } else {
-          imports.add(imp);
-        }
-      }
-    }
+    // Constants imports
+    imports.push('import com.viacom.unified.constants.Brand;');
+    imports.push('import com.viacom.unified.constants.FeatureConstants;');
+    imports.push('import com.viacom.unified.constants.GroupConstants;');
+    imports.push('import com.viacom.unified.constants.PlatformType;');
 
-    // Sort and format
-    const sorted = Array.from(imports).sort();
-    return sorted.map(imp => `import ${imp};`);
+    // Data and support imports
+    imports.push('import com.viacom.unified.model.TestData;');
+    imports.push('import com.viacom.unified.support.DataProviderManager;');
+    imports.push('import com.viacom.unified.support.TestParams;');
+    imports.push('import com.viacom.unified.support.data.TestDataProvider;');
+
+    // Base test
+    imports.push('import com.viacom.unified.tests.common.BaseTest;');
+
+    // Logger
+    imports.push('import com.viacom.unified.utils.logger.Logger;');
+
+    // Allure imports
+    imports.push('import io.qameta.allure.Description;');
+    imports.push('import io.qameta.allure.Feature;');
+    imports.push('import io.qameta.allure.TmsLink;');
+
+    // TestNG imports
+    imports.push('import org.testng.annotations.Factory;');
+    imports.push('import org.testng.annotations.Test;');
+    imports.push('import org.testng.asserts.SoftAssert;');
+
+    // LocaleConstants static import
+    imports.push('');
+    imports.push('import static com.viacom.unified.constants.LocaleConstants.ALL_LOCALES;');
+
+    return imports.sort((a, b) => {
+      // Group imports: annotations, constants, model, support, tests, utils, io, org, static
+      const order = (imp) => {
+        if (imp.startsWith('import static')) return 9;
+        if (imp.includes('.annotations.')) return 1;
+        if (imp.includes('.constants.')) return 2;
+        if (imp.includes('.model.')) return 3;
+        if (imp.includes('.support.')) return 4;
+        if (imp.includes('.tests.')) return 5;
+        if (imp.includes('.utils.')) return 6;
+        if (imp.includes('io.qameta')) return 7;
+        if (imp.includes('org.testng')) return 8;
+        return 5;
+      };
+      return order(a) - order(b);
+    });
   }
 
   /**
-   * Generate instance variable declarations
+   * Generate @Factory constructor
    */
-  generateInstanceVariables(mappingResult, prerequisites, indent) {
-    const lines = [];
-    const screens = new Set();
-
-    // Collect unique screens
-    if (prerequisites?.screenChain) {
-      prerequisites.screenChain.forEach(s => screens.add(s));
-    }
-    if (mappingResult?.mappings) {
-      mappingResult.mappings.forEach(m => {
-        if (m.className) screens.add(m.className);
-      });
-    }
-
-    // Generate declarations
-    for (const screen of screens) {
-      if (screen !== 'BaseTest') {
-        const varName = screen.charAt(0).toLowerCase() + screen.slice(1);
-        lines.push(`${indent}private ${screen} ${varName};`);
-      }
-    }
-
-    return lines;
-  }
-
-  /**
-   * Generate @BeforeMethod
-   */
-  generateBeforeMethod(prerequisites, indent, includeComments) {
+  generateFactoryConstructor(className, indent) {
     const lines = [];
 
-    if (includeComments) {
-      lines.push(`${indent}/**`);
-      lines.push(`${indent} * Test setup - launches app and navigates to target screen`);
-      lines.push(`${indent} */`);
-    }
-
-    lines.push(`${indent}@BeforeMethod`);
-    lines.push(`${indent}public void setUp() {`);
-
-    // Initialize screens
-    const screens = new Set();
-    if (prerequisites?.screenChain) {
-      prerequisites.screenChain.forEach(s => screens.add(s));
-    }
-
-    for (const screen of screens) {
-      if (screen !== 'BaseTest') {
-        const varName = screen.charAt(0).toLowerCase() + screen.slice(1);
-        lines.push(`${indent}${indent}${varName} = new ${screen}(driver);`);
-      }
-    }
-
-    lines.push('');
-
-    // Setup sequence
-    if (prerequisites?.prerequisites?.setupSequence) {
-      for (const step of prerequisites.prerequisites.setupSequence) {
-        const comment = includeComments ? ` // ${step.description}` : '';
-        const code = this.generateMethodCall(step);
-        lines.push(`${indent}${indent}${code}${comment}`);
-      }
-    }
-
-    // Navigation to target
-    if (prerequisites?.prerequisites?.navigationToTarget) {
-      lines.push('');
-      if (includeComments) {
-        lines.push(`${indent}${indent}// Navigate to target screen`);
-      }
-      for (const navStep of prerequisites.prerequisites.navigationToTarget) {
-        const varName = navStep.class.charAt(0).toLowerCase() + navStep.class.slice(1);
-        lines.push(`${indent}${indent}${varName}.${navStep.method}();`);
-      }
-    }
-
+    lines.push(`${indent}@Factory(dataProvider = "defaultDataProvider", dataProviderClass = DataProviderManager.class)`);
+    lines.push(`${indent}public ${className}(TestParams runParams) {`);
+    lines.push(`${indent}${indent}super(runParams);`);
     lines.push(`${indent}}`);
+
     return lines;
   }
 
   /**
-   * Generate main test method
+   * Generate main test method with all annotations
    */
-  generateTestMethod(scenario, decomposition, mappingResult, indent, includeComments) {
+  generateTestMethod(scenario, decomposition, mappingResult, prerequisites, options) {
+    const { indent, platform, brand, testType, tmsLinks, feature } = options;
     const lines = [];
 
-    // Method JavaDoc
-    if (includeComments) {
-      lines.push(`${indent}/**`);
-      lines.push(`${indent} * ${scenario.title}`);
-      if (scenario.description) {
-        lines.push(`${indent} * <p>${scenario.description}</p>`);
-      }
-      lines.push(`${indent} */`);
+    // @Test annotation with groups
+    const groups = this.getTestGroups(testType, feature);
+    lines.push(`${indent}@Test(groups = {${groups.join(', ')}})`);
+
+    // @TmsLink annotations
+    if (tmsLinks && tmsLinks.length > 0) {
+      tmsLinks.forEach(link => {
+        lines.push(`${indent}@TmsLink("${link}")`);
+      });
+    } else {
+      lines.push(`${indent}@TmsLink("TODO_ADD_TMS_LINK")`);
     }
 
-    // @Test annotation
-    const testDescription = scenario.title.replace(/"/g, '\\"');
-    lines.push(`${indent}@Test(description = "${testDescription}")`);
+    // @Description
+    const description = this.escapeJavaString(scenario.title);
+    lines.push(`${indent}@Description("${description}")`);
+
+    // @Feature
+    const featureConstant = this.featureConstants[feature] || 'FeatureConstants.FUNCTIONAL';
+    lines.push(`${indent}@Feature(${featureConstant})`);
+
+    // @Platforms
+    const platforms = this.getPlatformTypes(platform);
+    lines.push(`${indent}@Platforms({${platforms.join(', ')}})`);
+
+    // @Locales
+    lines.push(`${indent}@Locales({ALL_LOCALES})`);
+
+    // @AppBrand
+    const brands = this.getBrandTypes(brand);
+    lines.push(`${indent}@AppBrand({${brands.join(', ')}})`);
 
     // Method signature
     const methodName = this.generateMethodName(scenario.title);
     lines.push(`${indent}public void ${methodName}() {`);
 
-    // Test steps
-    const steps = mappingResult?.mappings || decomposition?.steps || [];
+    // Method body
+    lines.push(`${indent}${indent}SoftAssert softAssert = new SoftAssert();`);
 
-    for (let i = 0; i < steps.length; i++) {
-      const step = steps[i];
+    // Check if we need test data
+    const needsTestData = this.checkNeedsTestData(mappingResult, decomposition);
+    if (needsTestData) {
+      lines.push(`${indent}${indent}TestData data = getDefaultTestData();`);
+    }
 
+    lines.push(`${indent}${indent}try {`);
+
+    // Setup steps
+    lines.push(`${indent}${indent}${indent}launchAppAndNavigateToHomeScreen();`);
+
+    // Test steps - combine mapped and unmapped actions
+    const mappedSteps = mappingResult?.mappings || [];
+    const unmappedSteps = mappingResult?.unmapped || [];
+    const allSteps = [...mappedSteps, ...unmappedSteps].sort((a, b) => (a.id || 0) - (b.id || 0));
+
+    // Fall back to decomposition steps if no mappings available
+    const steps = allSteps.length > 0 ? allSteps : (decomposition?.steps || []);
+    let stepNum = 1;
+
+    for (const step of steps) {
       // Skip prerequisites (handled in setup)
       if (step.isPrerequisite) continue;
 
-      // Add step comment
-      if (includeComments) {
-        const stepNum = i + 1;
-        const description = step.details || step.action || 'Execute step';
-        lines.push(`${indent}${indent}// Step ${stepNum}: ${description}`);
-      }
-
-      // Generate method call
-      if (step.status === 'found' || step.methodName) {
-        const code = this.generateStepCode(step);
-        lines.push(`${indent}${indent}${code}`);
-      } else if (step.action) {
-        // Unmapped action - generate TODO
-        lines.push(`${indent}${indent}// TODO: Implement action - ${step.action} ${step.target || ''}`);
-      }
-
-      // Add blank line between steps
-      if (i < steps.length - 1 && includeComments) {
-        lines.push('');
+      // Add step as method call or comment
+      const stepCode = this.generateStepCode(step, needsTestData);
+      if (stepCode) {
+        lines.push(`${indent}${indent}${indent}${stepCode}`);
+        stepNum++;
       }
     }
 
+    // Assert all at the end
+    lines.push(`${indent}${indent}${indent}softAssert.assertAll();`);
+
+    // Finally block
+    lines.push(`${indent}${indent}} finally {`);
+    if (needsTestData) {
+      lines.push(`${indent}${indent}${indent}TestDataProvider.cleanupTestData(data);`);
+    } else {
+      lines.push(`${indent}${indent}${indent}// Cleanup handled by BaseTest`);
+    }
+    lines.push(`${indent}${indent}}`);
+
+    // Close method
     lines.push(`${indent}}`);
+
     return lines;
   }
 
   /**
-   * Generate @AfterMethod
+   * Generate helper/step methods with dual annotations
    */
-  generateAfterMethod(indent, includeComments) {
+  generateHelperMethods(mappingResult, indent) {
     const lines = [];
+    const helperMethods = new Set();
 
-    if (includeComments) {
-      lines.push(`${indent}/**`);
-      lines.push(`${indent} * Test cleanup`);
-      lines.push(`${indent} */`);
+    // Collect unique complex actions that warrant helper methods
+    const mappings = mappingResult?.mappings || [];
+
+    for (const mapping of mappings) {
+      if (mapping.isComplex || (mapping.action && mapping.action.includes('verify'))) {
+        const methodName = this.generateHelperMethodName(mapping.action);
+        if (!helperMethods.has(methodName)) {
+          helperMethods.add(methodName);
+
+          const stepDescription = this.escapeJavaString(mapping.action || mapping.details);
+
+          lines.push(`${indent}private static final String ${methodName.toUpperCase()}_STEP = "${stepDescription}";`);
+          lines.push('');
+          lines.push(`${indent}@io.qameta.allure.Step(${methodName.toUpperCase()}_STEP)`);
+          lines.push(`${indent}@com.epam.reportportal.annotations.Step(${methodName.toUpperCase()}_STEP)`);
+          lines.push(`${indent}private void ${methodName}(SoftAssert softAssert) {`);
+
+          // Generate method body
+          if (mapping.className && mapping.methodName) {
+            const accessor = this.screenAccessors[mapping.className] || `${mapping.className.charAt(0).toLowerCase()}${mapping.className.slice(1)}()`;
+            lines.push(`${indent}${indent}${accessor}.${mapping.methodName}();`);
+          } else {
+            lines.push(`${indent}${indent}// TODO: Implement ${mapping.action || 'action'}`);
+          }
+
+          lines.push(`${indent}}`);
+          lines.push('');
+        }
+      }
     }
 
-    lines.push(`${indent}@AfterMethod`);
-    lines.push(`${indent}public void tearDown() {`);
-    lines.push(`${indent}${indent}// Cleanup handled by BaseTest`);
-    lines.push(`${indent}}`);
-
     return lines;
+  }
+
+  /**
+   * Get test groups based on test type and feature
+   */
+  getTestGroups(testType, feature) {
+    const groups = new Set();
+
+    // Add type-based groups
+    const typeGroups = this.groupConstants[testType] || ['GroupConstants.FULL'];
+    typeGroups.forEach(g => groups.add(g));
+
+    // Add feature-based groups
+    const featureGroups = this.groupConstants[feature] || [];
+    featureGroups.forEach(g => groups.add(g));
+
+    return Array.from(groups);
+  }
+
+  /**
+   * Get platform types
+   */
+  getPlatformTypes(platform) {
+    if (!platform) {
+      return this.platformTypes['ctv'];
+    }
+
+    const platformLower = platform.toLowerCase();
+    return this.platformTypes[platformLower] || this.platformTypes['ctv'];
+  }
+
+  /**
+   * Get brand types
+   */
+  getBrandTypes(brand) {
+    if (!brand) {
+      return ['Brand.BET_PLUS', 'Brand.VH1', 'Brand.BET'];
+    }
+
+    const brandLower = brand.toLowerCase().replace(/[^a-z]/g, '');
+    const mappedBrand = this.brandTypes[brandLower];
+
+    if (mappedBrand) {
+      return [mappedBrand];
+    }
+
+    return ['Brand.BET_PLUS', 'Brand.VH1', 'Brand.BET'];
+  }
+
+  /**
+   * Check if test needs TestData
+   */
+  checkNeedsTestData(mappingResult, decomposition) {
+    const mappings = mappingResult?.mappings || [];
+    const steps = decomposition?.steps || [];
+
+    // Check for data-dependent actions
+    const dataKeywords = ['episode', 'movie', 'show', 'content', 'video', 'item', 'select', 'open'];
+
+    for (const mapping of mappings) {
+      const action = (mapping.action || '').toLowerCase();
+      const target = (mapping.target || '').toLowerCase();
+      if (dataKeywords.some(kw => action.includes(kw) || target.includes(kw))) {
+        return true;
+      }
+    }
+
+    for (const step of steps) {
+      const action = (step.action || '').toLowerCase();
+      if (dataKeywords.some(kw => action.includes(kw))) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /**
@@ -391,64 +637,86 @@ class TestComposerAgent {
       )
       .join('');
 
-    return `test${cleaned.charAt(0).toUpperCase() + cleaned.slice(1)}`;
+    // Ensure it ends with Test
+    if (!cleaned.toLowerCase().endsWith('test')) {
+      return `${cleaned}Test`;
+    }
+
+    return cleaned;
   }
 
   /**
-   * Generate method call for a setup step
+   * Generate helper method name
    */
-  generateMethodCall(step) {
-    const params = step.params?.join(', ') || '';
+  generateHelperMethodName(action) {
+    if (!action) return 'performAction';
 
-    if (step.class === 'BaseTest') {
-      return `${step.method}(${params});`;
-    }
+    const cleaned = action
+      .replace(/[^a-zA-Z0-9\s]/g, '')
+      .split(/\s+/)
+      .map((word, idx) =>
+        idx === 0
+          ? word.toLowerCase()
+          : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+      )
+      .join('');
 
-    const varName = step.class.charAt(0).toLowerCase() + step.class.slice(1);
-    return `${varName}.${step.method}(${params});`;
+    return cleaned || 'performAction';
   }
 
   /**
    * Generate code for a test step
    */
-  generateStepCode(step) {
+  generateStepCode(step, hasTestData) {
     const className = step.className || step.class;
     const methodName = step.methodName || step.method;
 
-    if (!className || !methodName) {
-      return `// Unable to generate code for: ${step.action || 'unknown action'}`;
+    if (step.status === 'found' && className && methodName) {
+      // Use screen accessor pattern
+      const accessor = this.screenAccessors[className] ||
+        `${className.charAt(0).toLowerCase()}${className.slice(1)}()`;
+
+      // Handle parameters
+      let params = '';
+      if (step.parameters && step.parameters.length > 0) {
+        params = this.inferParameterValues(step, hasTestData);
+      }
+
+      return `${accessor}.${methodName}(${params});`;
+    } else if (step.action) {
+      // Unmapped action - generate TODO comment
+      const description = step.action + (step.target ? ` ${step.target}` : '');
+      return `// TODO: ${description}`;
     }
 
-    const varName = className.charAt(0).toLowerCase() + className.slice(1);
-
-    // Handle parameters
-    let params = '';
-    if (step.parameters && step.parameters.length > 0) {
-      params = this.inferParameterValues(step);
-    }
-
-    return `${varName}.${methodName}(${params});`;
+    return null;
   }
 
   /**
    * Infer parameter values from step context
    */
-  inferParameterValues(step) {
+  inferParameterValues(step, hasTestData) {
     const params = [];
 
     for (const param of step.parameters) {
-      if (param.includes('String')) {
-        // String parameter - use placeholder or inferred value
+      if (param.includes('TestData') || param.includes('Item')) {
+        if (hasTestData) {
+          params.push('data');
+        } else {
+          params.push('getDefaultTestData()');
+        }
+      } else if (param.includes('String')) {
         if (step.details) {
-          params.push(`"${step.details}"`);
+          params.push(`"${this.escapeJavaString(step.details)}"`);
         } else {
           params.push('"testValue"');
         }
       } else if (param.includes('int') || param.includes('seconds')) {
-        // Integer/duration parameter
-        params.push('30'); // Default 30 seconds
+        params.push('30');
       } else if (param.includes('boolean')) {
         params.push('true');
+      } else if (param.includes('SoftAssert')) {
+        params.push('softAssert');
       } else {
         params.push('/* TODO */');
       }
@@ -458,16 +726,31 @@ class TestComposerAgent {
   }
 
   /**
+   * Escape string for Java
+   */
+  escapeJavaString(str) {
+    if (!str) return '';
+    return str
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"')
+      .replace(/\n/g, '\\n')
+      .replace(/\r/g, '\\r')
+      .replace(/\t/g, '\\t');
+  }
+
+  /**
    * Generate test metadata
    */
   generateMetadata(params) {
-    const { className, scenario, mappingResult, prerequisites, testType, platform, brand } = params;
+    const { className, scenario, mappingResult, prerequisites, testType, platform, brand, feature } = params;
 
     return {
       className,
       testType,
       platform,
       brand,
+      feature,
+      format: 'mqe-unified-oao-tests',
       scenario: {
         title: scenario.title,
         description: scenario.description
@@ -476,7 +759,7 @@ class TestComposerAgent {
         totalSteps: mappingResult?.mappings?.length || 0,
         unmappedSteps: mappingResult?.unmapped?.length || 0,
         screens: prerequisites?.screenChain?.length || 0,
-        imports: prerequisites?.prerequisites?.imports?.length || 0
+        imports: 15 // Standard imports count
       },
       generatedAt: new Date().toISOString()
     };
@@ -522,6 +805,12 @@ class TestComposerAgent {
       });
     }
 
+    // Missing TMS links
+    warnings.push({
+      type: 'missing_tms_link',
+      message: 'TMS link needs to be added manually'
+    });
+
     return warnings;
   }
 
@@ -531,9 +820,12 @@ class TestComposerAgent {
   getStats() {
     return {
       agent: 'TestComposerAgent',
-      version: '1.0.0',
-      defaultPackage: this.defaultPackage,
-      codeStyle: this.codeStyle
+      version: '2.0.0',
+      format: 'mqe-unified-oao-tests',
+      basePackage: this.basePackage,
+      supportedPlatforms: Object.keys(this.platformTypes),
+      supportedBrands: Object.keys(this.brandTypes),
+      supportedFeatures: Object.keys(this.featurePackageMap)
     };
   }
 }
