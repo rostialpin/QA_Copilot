@@ -184,15 +184,20 @@ curl -X POST .../decompose -d '{"scenario": "press play button"}'
   - [x] Generate @BeforeMethod setup code
   - [x] Support 15+ screen types with navigation paths
 
-### 2.5 Test Composer Agent ✅ COMPLETED
+### 2.5 Test Composer Agent ✅ COMPLETED (v2.0 - mqe-unified format)
 **Priority**: MEDIUM | **Effort**: 1-2 days | **Status**: DONE
 
-- [x] Create `agents/testComposerAgent.js`
-  - [x] Assemble complete test class
-  - [x] Apply code patterns from existing tests
-  - [x] Format with proper indentation (4 spaces)
-  - [x] Add TestNG annotations (@Test, @BeforeMethod, @AfterMethod)
-  - [x] Generate JavaDoc comments with metadata
+- [x] Create `agents/testComposerAgent.js` (v2.0)
+  - [x] Match mqe-unified-oao-tests format exactly
+  - [x] @Factory constructor with TestParams/DataProviderManager
+  - [x] @Platforms, @AppBrand, @Locales annotations
+  - [x] @TmsLink, @Feature, @Description annotations
+  - [x] Screen accessor methods (homeScreen(), playerScreen(), etc.)
+  - [x] SoftAssert with assertAll() pattern
+  - [x] try/finally with TestDataProvider cleanup
+  - [x] Auto-infer feature and package from scenario
+  - [x] Dual step annotations (Allure + ReportPortal)
+  - [x] ViacomCBS copyright header
   - [x] Warning system for unmapped/low-confidence actions
 
 ### 2.6 Multi-Agent Routes ✅ COMPLETED
@@ -352,8 +357,14 @@ curl -X POST .../decompose -d '{"scenario": "press play button"}'
   - Screen graph with BFS shortest-path algorithm
   - 15+ screen types supported
   - Generates @BeforeMethod setup code
-- [x] **Test Composer Agent** - Full test class generator
-  - TestNG annotations, JavaDoc, proper formatting
+- [x] **Test Composer Agent v2.0** - mqe-unified-oao-tests format
+  - @Factory constructor with TestParams/DataProviderManager
+  - @Platforms, @AppBrand, @Locales, @TmsLink, @Feature, @Description
+  - Screen accessor methods (homeScreen(), playerScreen(), etc.)
+  - SoftAssert with assertAll() pattern
+  - try/finally with TestDataProvider cleanup
+  - Auto-infers feature and package from scenario
+  - Dual step annotations (Allure + ReportPortal)
   - Warning system for unmapped actions
 - [x] **Multi-Agent Routes** - Full pipeline API
   - `/api/multi-agent/generate` - End-to-end generation
@@ -379,7 +390,7 @@ curl -X POST .../decompose -d '{"scenario": "press play button"}'
 - `backend/src/routes/scenarioDecomposer.routes.js` (NEW - 165 lines)
 - `backend/src/agents/actionMapperAgent.js` (NEW - 350+ lines)
 - `backend/src/agents/prerequisiteBuilderAgent.js` (NEW - 320+ lines)
-- `backend/src/agents/testComposerAgent.js` (NEW - 450+ lines)
+- `backend/src/agents/testComposerAgent.js` (v2.0 - 830+ lines, mqe-unified format)
 - `backend/src/agents/componentGeneratorAgent.js` (NEW - 500+ lines)
 - `backend/src/routes/multiAgent.routes.js` (NEW - 480+ lines)
 - `backend/src/routes/index.js` (MODIFIED - added new routes)
