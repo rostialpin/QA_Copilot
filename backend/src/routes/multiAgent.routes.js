@@ -236,10 +236,16 @@ router.post('/generate', async (req, res) => {
 
     logger.info(`Multi-agent generation completed in ${totalTime}ms`);
 
+    // Append generated stubs to code if there are any
+    let finalCode = composedTest.code;
+    if (generatedComponents?.newMethods?.length > 0 || generatedComponents?.newLocators?.length > 0) {
+      finalCode += formatGeneratedStubs(generatedComponents, platform);
+    }
+
     // Return results
     res.json({
       success: true,
-      code: composedTest.code,
+      code: finalCode,
       className: composedTest.className,
       fullClassName: composedTest.fullClassName,
       metadata: {
@@ -491,6 +497,60 @@ router.get('/stats', async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
+/**
+ * Format generated stubs as a comment block to append to test code
+ */
+function formatGeneratedStubs(generatedComponents, platform) {
+  const lines = ['\n'];
+  lines.push('/* ============================================================');
+  lines.push(' * GENERATED STUBS FOR MISSING ACTIONS');
+  lines.push(' * Add these to your Page Object classes to resolve MISSING comments above');
+  lines.push(' * ============================================================ */\n');
+
+  // Group methods by class
+  const methodsByClass = {};
+  for (const m of generatedComponents.newMethods || []) {
+    const className = m.class || 'GenericScreen';
+    if (!methodsByClass[className]) methodsByClass[className] = [];
+    methodsByClass[className].push(m);
+  }
+
+  // Format methods for each class
+  for (const [className, methods] of Object.entries(methodsByClass)) {
+    lines.push(`/*`);
+    lines.push(` * ${className}.java:`);
+    for (const m of methods) {
+      const method = m.method;
+      const params = method.parameters?.map(p => `${p.type} ${p.name}`).join(', ') || '';
+      lines.push(` * `);
+      if (method.javadoc) {
+        lines.push(` * ${method.javadoc.split('\n').join('\n * ')}`);
+      }
+      lines.push(` * public ${method.returnType} ${method.name}(${params}) {`);
+      lines.push(` *     ${method.body}`);
+      lines.push(` * }`);
+    }
+    lines.push(` */\n`);
+  }
+
+  // Format locators
+  if (generatedComponents.newLocators?.length > 0) {
+    lines.push(`/*`);
+    lines.push(` * Suggested Locators (${platform || 'generic'}):`);
+    for (const loc of generatedComponents.newLocators) {
+      const strategies = loc.strategies || {};
+      const platformLocators = strategies[platform] || strategies.android || [];
+      lines.push(` * ${loc.element}:`);
+      for (const xpath of platformLocators.slice(0, 2)) {
+        lines.push(` *   ${xpath}`);
+      }
+    }
+    lines.push(` */\n`);
+  }
+
+  return lines.join('\n');
+}
 
 // Helper function to initialize all agents
 async function initializeAgents() {

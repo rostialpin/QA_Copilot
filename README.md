@@ -62,11 +62,13 @@ An AI-powered QA automation assistant featuring a **Multi-Agent Test Generation 
 ## Key Features
 
 ### Multi-Agent Pipeline
-- **Scenario Decomposer**: Parses natural language into structured action steps with duration extraction
-- **Action Mapper**: Maps actions to actual Java methods using intelligent LLM selection + vector search
-- **Prerequisite Builder**: Generates MQE-specific navigation patterns (launch -> home -> content -> player)
-- **Test Composer**: Assembles final Java TestNG code with proper ordering (actions before verifications)
-- **Component Generator**: Creates stubs for missing methods and locators
+| Agent | Model | Role |
+|-------|-------|------|
+| **Scenario Decomposer** | `gemini-2.0-flash` | Parses natural language into structured action steps with duration extraction |
+| **Action Mapper** | `claude-sonnet-4` | Maps actions to actual Java methods using intelligent LLM selection + vector search |
+| **Prerequisite Builder** | Rule-based | Generates MQE-specific navigation patterns (launch -> home -> content -> player) |
+| **Test Composer** | Rule-based | Assembles final Java TestNG code with proper ordering (actions before verifications) |
+| **Component Generator** | `gemini-2.0-flash` | Creates stubs for missing methods and locators |
 
 ### Intelligent Method Selection
 - Uses Claude Sonnet 4 via OpenRouter for intelligent candidate selection
@@ -233,6 +235,40 @@ Default ratio is 1:6. To adjust, modify `SEEK_RATIO` in:
 
 ### Composite Actions
 Add new composite actions via the Knowledge Base API or directly in ChromaDB.
+
+### Stub Generation for Missing Methods
+When actions cannot be mapped to existing methods, the Component Generator creates stubs:
+```java
+// MISSING ACTION: click special_button
+// Suggested: ContainerScreen.clickSpecialButton()
+// Add to Knowledge Base to resolve
+
+/* === GENERATED STUBS FOR MISSING ACTIONS ===
+ * Add these to your Page Object classes:
+ *
+ * ContainerScreen.java:
+ * public void clickSpecialButton() {
+ *     clickElement(specialButton);
+ * }
+ *
+ * Locator suggestion (CTV):
+ * //android.widget.Button[@resource-id="com.example.app:id/specialButton"]
+ */
+```
+
+---
+
+## Manual Test Generation (Legacy)
+
+The system also includes a legacy manual test generation flow using:
+- **GeminiService**: Direct LLM-based test generation
+- **PlaywrightService**: Web test generation with self-healing locators
+
+This approach differs from the multi-agent pipeline - it sends the entire scenario to an LLM in a single prompt rather than decomposing into specialized agents.
+
+**Note**: The multi-agent approach provides better accuracy and maintainability. Future work may migrate manual test generation to use the same agent architecture.
+
+---
 
 ## Development
 
