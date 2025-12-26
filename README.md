@@ -1,222 +1,266 @@
-# QA Copilot 🤖
+# QA Copilot - Intelligent Test Automation
 
-An AI-powered QA automation assistant that streamlines test case generation, TestRail integration, and Cypress test automation.
+An AI-powered QA automation assistant featuring a **Multi-Agent Test Generation Pipeline** that transforms natural language scenarios into production-ready Java TestNG automation tests.
 
-## Features ✨
+## Architecture Overview
 
-- **JIRA Integration**: Pull tickets directly from JIRA boards and sprints
-- **AI Test Generation**: Generate comprehensive test cases using Google Gemini 2.5 AI models
-- **TestRail Integration**: Push test cases to TestRail with full traceability and visual confirmation
-- **Cypress Automation**: Convert test cases to executable Cypress tests with TestRail references
-- **Mock Mode**: Full functionality with mock data when APIs aren't configured
-- **Smart Model Selection**: Choose between Gemini 2.5 Flash (fast) or Pro (highest quality)
-- **Complete Workflow**: Seamless flow from JIRA → AI Test Cases → TestRail → Cypress
-- **Visual Feedback**: Success confirmations, test case IDs, and direct TestRail links
+```
+                              +------------------------------------------+
+                              |        QA Copilot Multi-Agent System     |
+                              +------------------------------------------+
+                                                  |
+                  +-------------------------------+-------------------------------+
+                  |                               |                               |
+                  v                               v                               v
+    +------------------------+    +------------------------+    +------------------------+
+    |   JIRA Integration     |    |   TestRail Integration |    |   Repository Mining    |
+    |   - Ticket fetching    |    |   - Test case sync     |    |   - Java method index  |
+    |   - AC extraction      |    |   - Section mapping    |    |   - Screen classes     |
+    +------------------------+    +------------------------+    +------------------------+
+                  |                               |                               |
+                  +-------------------------------+-------------------------------+
+                                                  |
+                                                  v
++=======================================================================================+
+||                          MULTI-AGENT TEST GENERATION PIPELINE                       ||
++=======================================================================================+
+|                                                                                       |
+|  +------------------+     +------------------+     +---------------------+            |
+|  |  1. Scenario     |     |  2. Action       |     |  3. Prerequisite    |            |
+|  |  Decomposer      | --> |  Mapper          | --> |  Builder            |            |
+|  |  Agent           |     |  Agent           |     |  Agent              |            |
+|  +------------------+     +------------------+     +---------------------+            |
+|         |                        |                         |                          |
+|         v                        v                         v                          |
+|  Natural Language         Method Selection          MQE Navigation                    |
+|  "Click restart" -->      from KB + RAG -->        Pattern Setup                      |
+|  [click, restart_btn]     scrollToRestart()        launchApp...selectEpisode          |
+|                                                                                       |
+|  +------------------+     +------------------+     +---------------------+            |
+|  |  4. Test         |     |  5. Component    |     |  ChromaDB           |            |
+|  |  Composer        | <-- |  Generator       | <-- |  Knowledge Base     |            |
+|  |  Agent           |     |  Agent           |     |  (Vector Store)     |            |
+|  +------------------+     +------------------+     +---------------------+            |
+|         |                        |                         |                          |
+|         v                        v                         v                          |
+|  Java TestNG Code         Missing Method           3-Layer Action KB:                 |
+|  with Allure +            Stub Generation          - Atomic Actions                   |
+|  proper structure                                  - Composite Actions                |
+|                                                    - User Terminology                 |
++=======================================================================================+
+                                                  |
+                                                  v
+                              +------------------------------------------+
+                              |           Generated Test Code            |
+                              |  - MQE Unified Framework compatible     |
+                              |  - TestNG + Allure annotations          |
+                              |  - Screen-aware method calls            |
+                              |  - Proper imports and data providers    |
+                              +------------------------------------------+
+```
 
-## Quick Start 🚀
+## Key Features
+
+### Multi-Agent Pipeline
+- **Scenario Decomposer**: Parses natural language into structured action steps with duration extraction
+- **Action Mapper**: Maps actions to actual Java methods using intelligent LLM selection + vector search
+- **Prerequisite Builder**: Generates MQE-specific navigation patterns (launch -> home -> content -> player)
+- **Test Composer**: Assembles final Java TestNG code with proper ordering (actions before verifications)
+- **Component Generator**: Creates stubs for missing methods and locators
+
+### Intelligent Method Selection
+- Uses Claude Sonnet 4 via OpenRouter for intelligent candidate selection
+- Hybrid RAG (ChromaDB) for semantic method search across 2600+ indexed methods
+- Learns from selections to improve future mappings
+- Supports composite actions that expand to multiple method calls
+
+### Composite Actions
+Multi-step operations stored as reusable patterns:
+```
+navigate_to_restart_button:
+  1. playerScreen().backFromPlayer()      // Exit player
+  2. containerScreen().scrollToRestartButton()  // Focus on button
+  3. containerScreen().select()           // Click button
+```
+
+### Smart Duration Handling
+Preconditions with durations use configurable seek ratio:
+```
+"Content has 10 minutes of watch progress"
+  --> seekForwardToPosition(100)  // 600s / 6 = 100s (1:6 ratio)
+```
+
+## Quick Start
 
 ### Prerequisites
-
-- Node.js 18+ 
-- npm or yarn
-- Git
+- Node.js 18+
+- ChromaDB (for vector search)
+- OpenRouter API key (for LLM)
 
 ### Installation
 
-1. Clone the repository:
 ```bash
-git clone <your-new-repo-url>
+# Clone and install
+git clone <repo-url>
 cd qa-copilot
-```
-
-2. Install dependencies:
-```bash
 npm run setup
-```
 
-3. Configure environment variables:
+# Start ChromaDB
+./start-chromadb.sh
 
-**Primary Method: Using shell configuration (Recommended)**
-```bash
-# Add to ~/.zshrc or ~/.bashrc
-export JIRA_URL="https://your-company.atlassian.net"
-export JIRA_EMAIL="your-email@company.com"
-export JIRA_API_TOKEN="your-jira-api-token"
-export TESTRAIL_URL="https://your-company.testrail.io"
-export TESTRAIL_EMAIL="your-email@company.com"
-export TESTRAIL_TOKEN="your-testrail-api-token"
-export GOOGLE_API_KEY="your-google-api-key"
-export GEMINI_MODEL="gemini-2.5-flash"  # or gemini-2.5-pro
-
-# Reload shell configuration
-source ~/.zshrc
-```
-
-**Alternative: Using .env files (Optional)**
-```bash
-# Only if you prefer .env files over shell configuration
-# Copy the example files
-cp .env.example backend/.env
-cp .env.example frontend/.env
-
-# Edit the files with your API credentials
-# Note: Shell environment variables take precedence over .env files
-```
-
-4. Start the application:
-```bash
+# Start the application
 npm run dev
 ```
 
-5. Open your browser to http://localhost:5173
+### Environment Variables
 
-## Project Structure 📁
+```bash
+# Required for multi-agent generation
+export OPENROUTER_API_KEY="your-openrouter-key"
+
+# Optional integrations
+export JIRA_URL="https://your-company.atlassian.net"
+export JIRA_EMAIL="your-email"
+export JIRA_API_TOKEN="your-token"
+export TESTRAIL_URL="https://your-company.testrail.io"
+export TESTRAIL_EMAIL="your-email"
+export TESTRAIL_TOKEN="your-token"
+```
+
+## API Endpoints
+
+### Multi-Agent Generation
+```bash
+POST /api/multi-agent/generate
+{
+  "scenario": "Verify Restart functionality. Click restart button to restart playback.",
+  "platform": "ctv",
+  "brand": "pplus",
+  "precondition": "Content has 10 minutes of watch progress."
+}
+```
+
+### Knowledge Base Management
+```bash
+# Get stats
+GET /api/knowledge-base/stats
+
+# Search atomic actions
+POST /api/knowledge-base/atomic-actions/search
+{ "query": "click restart button", "platform": "ctv" }
+
+# Add composite action
+POST /api/knowledge-base/composite-actions
+{
+  "actionName": "navigate_to_restart_button",
+  "description": "Navigate from player to restart button and click it",
+  "steps": [...]
+}
+
+# Index repository methods
+POST /api/knowledge-base/index-methods
+{ "repositoryPath": "/path/to/test-framework" }
+```
+
+## Project Structure
 
 ```
 qa-copilot/
-├── frontend/          # React + Vite frontend
-│   ├── src/
-│   │   ├── pages/    # Main application pages
-│   │   ├── services/ # API service layers
-│   │   └── components/
-├── backend/           # Node.js + Express backend
-│   ├── src/
-│   │   ├── controllers/
-│   │   ├── services/ # Business logic
-│   │   └── routes/   # API endpoints
-├── cypress-templates/ # Cypress test templates
-└── scripts/          # Utility scripts
+├── frontend/              # React + Vite UI
+│   └── src/
+│       └── pages/
+│           └── AutomateTestsPage.jsx  # Main generation UI
+├── backend/
+│   └── src/
+│       ├── agents/        # Multi-agent pipeline
+│       │   ├── scenarioDecomposerAgent.js
+│       │   ├── actionMapperAgent.js
+│       │   ├── prerequisiteBuilderAgent.js
+│       │   ├── testComposerAgent.js
+│       │   └── componentGeneratorAgent.js
+│       ├── services/
+│       │   ├── actionKnowledgeBaseService.js  # ChromaDB KB
+│       │   ├── hybridRAGService.js            # Method search
+│       │   └── intelligentMethodSelector.js   # LLM selection
+│       └── routes/
+│           ├── multiAgent.routes.js
+│           └── actionKnowledgeBase.routes.js
+└── docs/                  # Documentation
 ```
 
-## Configuration 🔧
+## Generated Test Example
 
-### API Credentials
+Input:
+```
+Scenario: "Verify Restart functionality. Click restart button to restart playback."
+Precondition: "Content has 10 minutes of watch progress."
+Platform: CTV
+```
 
-The application integrates with multiple services. Configure these using environment variables in your shell configuration (`~/.zshrc` or `~/.bashrc`):
+Output:
+```java
+@Test(groups = {GroupConstants.FULL, GroupConstants.REGRESSION, GroupConstants.PLAYBACK})
+@Description("Verify Restart functionality. Click restart button to restart playback.")
+public void verifyRestartFunctionalityTest() {
+    SoftAssert softAssert = new SoftAssert();
+    TestData data = TestUtils.getDataWithSkip(TestDataProvider::getThreadSafeEpisodeWithoutContinuousPlayback);
+    try {
+        Item item = TestDataProvider.getBrandFeedEpisodeItem(data);
+        // Navigation to content
+        launchAppAndNavigateToHomeScreen();
+        homeScreen().openShowFromBrandFeedSection(data, item);
+        containerScreen().selectEpisode(item, data.getEpisodeIndex(), data.getSeasonIndex());
+        playerScreen().waitForVideoLoaded();
+        playerScreen().seekForwardToPosition(100); // Seek 100s to simulate 600s watch progress (ratio 1:6)
 
-#### JIRA/Atlassian
-- Get API token: https://id.atlassian.com/manage-profile/security/api-tokens
-- Required: `JIRA_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`
+        playerScreen().backFromPlayer();
+        containerScreen().scrollToRestartButton();
+        containerScreen().select();
+        playerScreen().verifyVideoStartsAtBeginning();
+        softAssert.assertAll();
+    } finally {
+        TestDataProvider.removeThreadSafeEpisode(data);
+    }
+}
+```
 
-#### TestRail
-- Get API key from TestRail: My Settings → API Keys
-- Required: `TESTRAIL_URL`, `TESTRAIL_EMAIL`, `TESTRAIL_TOKEN`
+## Configuration
 
-#### Google Gemini AI (Optional but Recommended)
-- Get API key: https://makersuite.google.com/app/apikey
-- Required: `GOOGLE_API_KEY`
-- Model selection: `GEMINI_MODEL` (options: `gemini-2.5-flash` or `gemini-2.5-pro`)
-  - **gemini-2.5-flash** (default): Faster responses, great quality, cost-effective
-  - **gemini-2.5-pro**: Highest quality, better for complex test scenarios
+### Seek Ratio (Duration to Seek Time)
+Default ratio is 1:6. To adjust, modify `SEEK_RATIO` in:
+- `backend/src/agents/actionMapperAgent.js`
+- `backend/src/agents/prerequisiteBuilderAgent.js`
 
-### Mock Mode
+### Composite Actions
+Add new composite actions via the Knowledge Base API or directly in ChromaDB.
 
-The application automatically falls back to mock data when APIs are not configured:
-- 3 demo JIRA boards with sample issues
-- AI-generated test cases (3 per request)
-- Mock TestRail projects and suites
-- Sample Cypress test generation
-
-## Usage Workflow 📋
-
-1. **Dashboard**: View JIRA boards and select issues
-2. **Generate Tests**: Click "Generate Tests" on any JIRA issue
-3. **Review Test Cases**: AI generates comprehensive test cases
-4. **Push to TestRail**: Select project/suite and push test cases
-5. **Generate Cypress**: Select test cases and generate automation code
-6. **Export**: Download or copy Cypress tests to your project
-
-## Development 💻
-
-### Available Scripts
+## Development
 
 ```bash
-# Install all dependencies
-npm run setup
-
 # Start development servers
 npm run dev
 
-# Run backend only
+# Backend only
 npm run dev:backend
 
-# Run frontend only
+# Frontend only
 npm run dev:frontend
 
 # Run tests
 npm test
 ```
 
-### Technology Stack
+## Technology Stack
 
-**Frontend:**
-- React 18
-- Vite
-- TanStack Query
-- Tailwind CSS
-- React Router
+- **Frontend**: React 18, Vite, TanStack Query, Tailwind CSS
+- **Backend**: Node.js, Express
+- **AI/ML**: OpenRouter (Claude Sonnet 4), ChromaDB (Vector Store)
+- **Integrations**: JIRA, TestRail, GitHub
 
-**Backend:**
-- Node.js
-- Express
-- Sequelize ORM
-- Google Gemini AI (2.5 Flash/Pro models)
-- Axios
+## License
 
-## API Endpoints 🔌
-
-### JIRA
-- `GET /api/jira/boards` - List all boards
-- `GET /api/jira/current-sprint/:boardId` - Get active sprint
-- `GET /api/jira/sprint/:sprintId/issues` - Get sprint issues
-
-### Test Generation
-- `POST /api/gemini/generate-test-cases` - Generate test cases from ticket
-- `POST /api/gemini/analyze-duplicate` - Check for duplicate tests
-
-### TestRail
-- `GET /api/testrail/projects` - List projects
-- `GET /api/testrail/suites/:projectId` - List test suites
-- `POST /api/testrail/test-case` - Create test case
-
-### Cypress
-- `POST /api/cypress/generate-test` - Generate Cypress code
-- `GET /api/cypress/templates` - List available templates
-
-## Troubleshooting 🔍
-
-### Common Issues
-
-1. **"Network Error" on frontend**
-   - Ensure both servers are running (`npm run dev`)
-   - Check that backend is on port 3001
-
-2. **API Authentication Failures**
-   - System automatically switches to mock mode
-   - Check your API credentials in `.env` files
-
-3. **Port Already in Use**
-   ```bash
-   # Kill process on port 3001
-   lsof -i :3001 | grep LISTEN | awk '{print $2}' | xargs kill -9
-   ```
-
-## Contributing 🤝
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-## License 📄
-
-This project is licensed under the MIT License.
-
-## Support 💬
-
-For issues and questions, please open an issue in the GitHub repository.
+MIT License
 
 ---
 
-Built with ❤️ for QA Engineers
+Built for MQE Automation Team

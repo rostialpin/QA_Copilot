@@ -111,11 +111,13 @@ router.post('/atomic-actions', async (req, res) => {
       });
     }
 
-    // Generate ID if not provided (include platform/brand for uniqueness)
+    // Generate ID if not provided (include actionName for uniqueness)
     if (!action.id) {
       const idParts = ['action'];
       if (action.platform) idParts.push(action.platform);
       if (action.brand) idParts.push(action.brand);
+      // Include actionName to allow multiple patterns pointing to same method
+      if (action.actionName) idParts.push(action.actionName);
       idParts.push(action.className, action.methodName);
       action.id = idParts.join('_');
     }
@@ -201,6 +203,25 @@ router.get('/atomic-actions', async (req, res) => {
     res.json(result);
   } catch (error) {
     logger.error('Get atomic actions error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * Delete an atomic action by ID
+ * DELETE /api/knowledge-base/atomic-actions/:id
+ */
+router.delete('/atomic-actions/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ success: false, error: 'id is required' });
+    }
+
+    const result = await actionKnowledgeBaseService.deleteFromCollection('atomicActions', id);
+    res.json(result);
+  } catch (error) {
+    logger.error('Delete atomic action error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -299,6 +320,25 @@ router.get('/composite-actions', async (req, res) => {
     res.json(result);
   } catch (error) {
     logger.error('Get composite actions error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * Delete a composite action by ID
+ * DELETE /api/knowledge-base/composite-actions/:id
+ */
+router.delete('/composite-actions/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ success: false, error: 'id is required' });
+    }
+
+    const result = await actionKnowledgeBaseService.deleteFromCollection('compositeActions', id);
+    res.json(result);
+  } catch (error) {
+    logger.error('Delete composite action error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

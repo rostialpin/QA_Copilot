@@ -16,6 +16,7 @@ import { actionMapperAgent } from '../agents/actionMapperAgent.js';
 import { prerequisiteBuilderAgent } from '../agents/prerequisiteBuilderAgent.js';
 import { testComposerAgent } from '../agents/testComposerAgent.js';
 import { componentGeneratorAgent } from '../agents/componentGeneratorAgent.js';
+import { screenPathTracker } from '../services/screenPathTracker.js';
 import { logger } from '../utils/logger.js';
 
 const router = Router();
@@ -49,6 +50,8 @@ router.post('/generate', async (req, res) => {
       testType = 'functional',
       className,
       packageName,
+      precondition,
+      fastSeekSeconds = null,  // Fast seek time in seconds for precondition duration (e.g., 10 for quick testing)
       debug = false
     } = req.body;
 
@@ -65,7 +68,7 @@ router.post('/generate', async (req, res) => {
     await initializeAgents();
 
     const pipelineResults = {
-      input: { scenario, platform, brand },
+      input: { scenario, platform, brand, precondition, fastSeekSeconds },
       stages: {}
     };
 
@@ -74,7 +77,8 @@ router.post('/generate', async (req, res) => {
     const decomposition = await scenarioDecomposerAgent.decompose(scenario, {
       platform,
       brand,
-      includeLogin
+      includeLogin,
+      precondition
     });
 
     if (!decomposition.success) {
@@ -93,11 +97,24 @@ router.post('/generate', async (req, res) => {
       learnedPatternsUsed: decomposition.learned_patterns_used || 0
     };
 
+    // ========== STAGE 1.5: Build Screen Path ==========
+    logger.debug('Stage 1.5: Building Screen Path');
+    screenPathTracker.reset();
+    const screenPath = screenPathTracker.buildPath(decomposition.steps || []);
+
+    pipelineResults.stages.screenPath = {
+      success: true,
+      path: screenPath.map(p => p.screen),
+      pathLength: screenPath.length
+    };
+
     // ========== STAGE 2: Map Actions to Methods ==========
     logger.debug('Stage 2: Action Mapping');
     const mappingResult = await actionMapperAgent.mapSteps(decomposition, {
       platform,
-      brand
+      brand,
+      screenPathTracker,  // Pass tracker for context-aware mapping
+      fastSeekSeconds     // Pass fast seek option for duration actions (null = use actual duration)
     });
 
     if (!mappingResult.success) {
@@ -126,7 +143,8 @@ router.post('/generate', async (req, res) => {
         platform,
         brand,
         includeLogin,
-        targetScreen: decomposition.primary_screen || decomposition.primaryScreen
+        targetScreen: decomposition.primary_screen || decomposition.primaryScreen,
+        fastSeekSeconds  // Pass for dynamic seek time in MQE patterns
       }
     );
 
@@ -224,8 +242,13 @@ router.post('/generate', async (req, res) => {
       code: composedTest.code,
       className: composedTest.className,
       fullClassName: composedTest.fullClassName,
-      metadata: composedTest.metadata,
+      metadata: {
+        ...composedTest.metadata,
+        precondition: precondition || null
+      },
       warnings: composedTest.warnings,
+      // Missing actions that need to be added to Knowledge Base
+      missingActions: mappingResult.missingActions || [],
       unmappedActions: composedTest.unmappedActions,
       generatedComponents: generatedComponents ? {
         newMethods: generatedComponents.newMethods,
@@ -305,7 +328,7 @@ router.get('/info', (req, res) => {
  */
 router.post('/map', async (req, res) => {
   try {
-    const { decomposition, platform, brand } = req.body;
+    const { decomposition, platform, brand, fastSeekSeconds = null } = req.body;
 
     if (!decomposition || !decomposition.steps) {
       return res.status(400).json({
@@ -315,7 +338,7 @@ router.post('/map', async (req, res) => {
     }
 
     await actionMapperAgent.initialize();
-    const result = await actionMapperAgent.mapSteps(decomposition, { platform, brand });
+    const result = await actionMapperAgent.mapSteps(decomposition, { platform, brand, fastSeekSeconds });
 
     res.json(result);
   } catch (error) {

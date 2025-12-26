@@ -60,6 +60,62 @@ class PrerequisiteBuilderAgent {
       }
     };
 
+    // MQE-specific content navigation patterns
+    this.mqeContentPatterns = {
+      // Navigate to episode and start playback
+      play_episode: {
+        testDataSetup: 'TestData data = TestUtils.getDataWithSkip(TestDataProvider::getThreadSafeEpisodeWithoutContinuousPlayback);',
+        itemSetup: 'Item item = TestDataProvider.getBrandFeedEpisodeItem(data);',
+        steps: [
+          { method: 'launchAppAndNavigateToHomeScreen', class: 'BaseTest' },
+          { method: 'openShowFromBrandFeedSection', class: 'HomeScreen', params: ['data', 'item'] },
+          { method: 'selectEpisode', class: 'ContainerScreen', params: ['item', 'data.getEpisodeIndex()', 'data.getSeasonIndex()'] },
+          { method: 'waitForVideoLoaded', class: 'PlayerScreen' }
+        ],
+        cleanup: 'TestDataProvider.removeThreadSafeEpisode(data);',
+        imports: ['TestData', 'Item', 'TestDataProvider', 'TestUtils']
+      },
+      // Navigate to player (content is playing)
+      player_screen: {
+        testDataSetup: 'TestData data = TestUtils.getDataWithSkip(TestDataProvider::getThreadSafeEpisodeWithoutContinuousPlayback);',
+        itemSetup: 'Item item = TestDataProvider.getBrandFeedEpisodeItem(data);',
+        steps: [
+          { method: 'launchAppAndNavigateToHomeScreen', class: 'BaseTest' },
+          { method: 'openShowFromBrandFeedSection', class: 'HomeScreen', params: ['data', 'item'] },
+          { method: 'selectEpisode', class: 'ContainerScreen', params: ['item', 'data.getEpisodeIndex()', 'data.getSeasonIndex()'] },
+          { method: 'waitForVideoLoaded', class: 'PlayerScreen' }
+        ],
+        cleanup: 'TestDataProvider.removeThreadSafeEpisode(data);',
+        imports: ['TestData', 'Item', 'TestDataProvider', 'TestUtils']
+      },
+      // Navigate to player with watch progress (for restart/resume tests)
+      // Seek forward to simulate having watched content
+      player_with_progress: {
+        testDataSetup: 'TestData data = TestUtils.getDataWithSkip(TestDataProvider::getThreadSafeEpisodeWithoutContinuousPlayback);',
+        itemSetup: 'Item item = TestDataProvider.getBrandFeedEpisodeItem(data);',
+        steps: [
+          { method: 'launchAppAndNavigateToHomeScreen', class: 'BaseTest' },
+          { method: 'openShowFromBrandFeedSection', class: 'HomeScreen', params: ['data', 'item'] },
+          { method: 'selectEpisode', class: 'ContainerScreen', params: ['item', 'data.getEpisodeIndex()', 'data.getSeasonIndex()'] },
+          { method: 'waitForVideoLoaded', class: 'PlayerScreen' },
+          { method: 'seekForwardToPosition', class: 'PlayerScreen', params: ['10'], comment: '// Adjust seek time as needed for test requirements' }
+        ],
+        cleanup: 'TestDataProvider.removeThreadSafeEpisode(data);',
+        imports: ['TestData', 'Item', 'TestDataProvider', 'TestUtils']
+      },
+      // Navigate to container screen (show details page)
+      container_screen: {
+        testDataSetup: 'TestData data = TestUtils.getDataWithSkip(TestDataProvider::getThreadSafeEpisodeWithoutContinuousPlayback);',
+        itemSetup: 'Item item = TestDataProvider.getBrandFeedEpisodeItem(data);',
+        steps: [
+          { method: 'launchAppAndNavigateToHomeScreen', class: 'BaseTest' },
+          { method: 'openShowFromBrandFeedSection', class: 'HomeScreen', params: ['data', 'item'] }
+        ],
+        cleanup: 'TestDataProvider.removeThreadSafeEpisode(data);',
+        imports: ['TestData', 'Item', 'TestDataProvider', 'TestUtils']
+      }
+    };
+
     // Screen to class mapping
     this.screenClassMap = {
       'login': 'LoginScreen',
@@ -99,18 +155,32 @@ class PrerequisiteBuilderAgent {
       platform = null,
       brand = null,
       includeLogin = true,
-      targetScreen = null
+      targetScreen = null,
+      fastSeekSeconds = null
     } = options;
 
+    // Store for use in pattern building
+    this.fastSeekSeconds = fastSeekSeconds;
+
     // Determine target screen from mappings if not provided
-    // Fallback to 'home' if nothing can be inferred
     const target = targetScreen || this.inferTargetScreen(mappingResult.mappings) || 'home';
 
-    logger.debug(`Target screen resolved to: ${target}`);
+    logger.info(`Building prerequisites for target screen: ${target}, platform: ${platform}`);
 
-    logger.debug(`Building prerequisites for target screen: ${target}`);
+    // Check if we should use MQE-specific patterns (CTV platform)
+    const useMqePatterns = platform === 'ctv' || platform === 'CTV';
 
-    // Find navigation path
+    if (useMqePatterns) {
+      // Check if test needs content navigation (player, container, restart, etc.)
+      const needsContentNav = this.needsContentNavigation(target, mappingResult.mappings);
+
+      if (needsContentNav) {
+        logger.info(`[MQE Pattern] Using content navigation pattern for target: ${target}`);
+        return this.buildMqeContentPrerequisites(target, mappingResult, options);
+      }
+    }
+
+    // Standard navigation path
     const navigationPath = this.findNavigationPath('app_launch', target);
 
     // Collect imports from mappings and navigation
@@ -141,6 +211,187 @@ class PrerequisiteBuilderAgent {
       platform,
       brand
     };
+  }
+
+  /**
+   * Check if the test needs content navigation (episode/movie playback)
+   */
+  needsContentNavigation(targetScreen, mappings) {
+    const contentScreens = ['player', 'container', 'content', 'episode', 'series'];
+    const targetLower = (targetScreen || '').toLowerCase();
+
+    // Check target screen
+    if (contentScreens.some(s => targetLower.includes(s))) {
+      return true;
+    }
+
+    // Check if mappings reference player/container methods
+    for (const mapping of (mappings || [])) {
+      const methodLower = (mapping.methodName || '').toLowerCase();
+      const classLower = (mapping.className || '').toLowerCase();
+
+      if (methodLower.includes('player') || methodLower.includes('episode') ||
+          methodLower.includes('restart') || methodLower.includes('playback') ||
+          classLower.includes('player') || classLower.includes('container')) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Build MQE-specific content navigation prerequisites
+   */
+  buildMqeContentPrerequisites(target, mappingResult, options) {
+    const targetLower = (target || '').toLowerCase();
+
+    // Determine which MQE pattern to use
+    let patternKey = 'container_screen'; // default
+
+    // Check if test requires watch progress (restart/resume scenarios)
+    if (this.mappingsRequireWatchProgress(mappingResult.mappings)) {
+      patternKey = 'player_with_progress';
+      logger.info('[MQE Pattern] Detected restart/resume scenario - using player_with_progress');
+    } else if (targetLower.includes('player') || this.mappingsRequirePlayback(mappingResult.mappings)) {
+      patternKey = 'player_screen';
+    }
+
+    const pattern = this.mqeContentPatterns[patternKey];
+    if (!pattern) {
+      logger.warn(`No MQE pattern found for: ${patternKey}`);
+      return this.buildPrerequisites(mappingResult, { ...options, platform: null });
+    }
+
+    logger.info(`[MQE Pattern] Using pattern: ${patternKey}`);
+
+    // Extract duration info from mapping result for dynamic seek time
+    // SEEK_RATIO: Playback duration to seek time ratio (default 6:1)
+    // Formula: seekSeconds = playbackDuration / SEEK_RATIO
+    // Example: 10 min playback (600s) / 6 = 100s seek time
+    // To adjust: change SEEK_RATIO (lower = faster seek, higher = more realistic)
+    const SEEK_RATIO = options.seekRatio || 6;
+
+    const durationMapping = (mappingResult.mappings || []).find(m => m.source === 'duration_action');
+    let seekSeconds = 10; // default
+    let seekComment = '// Adjust seek time as needed for test requirements';
+
+    if (durationMapping) {
+      // Calculate seek time from actual duration using ratio
+      const actualSeconds = durationMapping.actualDurationSeconds || durationMapping.durationSeconds || 60;
+      seekSeconds = Math.round(actualSeconds / SEEK_RATIO);
+      seekSeconds = Math.max(seekSeconds, 10); // minimum 10 seconds
+
+      seekComment = `// Seek ${seekSeconds}s to simulate ${actualSeconds}s watch progress (ratio 1:${SEEK_RATIO}, adjust SEEK_RATIO in prerequisiteBuilderAgent.js)`;
+      logger.info(`[MQE Pattern] Calculated seek: ${seekSeconds}s from ${actualSeconds}s playback (ratio 1:${SEEK_RATIO})`);
+    } else if (this.fastSeekSeconds !== null && this.fastSeekSeconds !== undefined) {
+      // Direct seek time override from API
+      seekSeconds = this.fastSeekSeconds;
+      seekComment = `// Seek to ${seekSeconds}s watch progress`;
+      logger.info(`[MQE Pattern] Using fastSeekSeconds from options: ${seekSeconds}s`);
+    }
+
+    // Build imports
+    const imports = new Set([
+      'BaseTest',
+      'org.testng.annotations.Test',
+      'org.testng.annotations.Factory',
+      'SoftAssert',
+      ...pattern.imports,
+      'HomeScreen',
+      'ContainerScreen',
+      'PlayerScreen'
+    ]);
+
+    // Add imports from mappings
+    for (const mapping of (mappingResult.mappings || [])) {
+      if (mapping.className) {
+        imports.add(mapping.className);
+      }
+    }
+
+    // Build setup sequence from pattern steps with dynamic seek time
+    const setupSequence = pattern.steps.map((step, i) => {
+      // Override seekForwardToPosition params and comment with dynamic values
+      if (step.method === 'seekForwardToPosition') {
+        return {
+          order: i + 1,
+          method: step.method,
+          class: step.class,
+          params: [String(seekSeconds)],
+          comment: seekComment,
+          description: `${step.method} call`
+        };
+      }
+      return {
+        order: i + 1,
+        method: step.method,
+        class: step.class,
+        params: step.params || [],
+        comment: step.comment || null,
+        description: `${step.method} call`
+      };
+    });
+
+    return {
+      success: true,
+      targetScreen: target,
+      useMqePattern: true,
+      mqePattern: patternKey,
+      prerequisites: {
+        imports: Array.from(imports),
+        setupSequence,
+        navigationToTarget: [],  // Already included in setupSequence
+        testDataRequirements: [{
+          type: 'episode_data',
+          setup: pattern.testDataSetup,
+          itemSetup: pattern.itemSetup,
+          cleanup: pattern.cleanup
+        }]
+      },
+      screenChain: pattern.steps.map(s => s.class),
+      platform: options.platform,
+      brand: options.brand
+    };
+  }
+
+  /**
+   * Check if mappings require video playback
+   */
+  mappingsRequirePlayback(mappings) {
+    for (const mapping of (mappings || [])) {
+      const methodLower = (mapping.methodName || '').toLowerCase();
+      if (methodLower.includes('video') || methodLower.includes('playback') ||
+          methodLower.includes('player') || methodLower.includes('seek') ||
+          methodLower.includes('restart') || methodLower.includes('pause')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Check if mappings require watch progress (restart/resume scenarios)
+   * These tests need the video to have been "watched" for some time before the test action
+   */
+  mappingsRequireWatchProgress(mappings) {
+    const progressKeywords = ['restart', 'resume', 'continue watching', 'watch history', 'saved position'];
+
+    for (const mapping of (mappings || [])) {
+      const methodLower = (mapping.methodName || '').toLowerCase();
+      const actionLower = (mapping.action || '').toLowerCase();
+
+      // Check method names
+      if (progressKeywords.some(kw => methodLower.includes(kw.replace(' ', '')))) {
+        return true;
+      }
+
+      // Check action descriptions
+      if (progressKeywords.some(kw => actionLower.includes(kw))) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

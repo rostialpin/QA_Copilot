@@ -266,6 +266,46 @@ class ActionKnowledgeBaseService {
           ? whereConditions[0]
           : undefined;
 
+      // FIRST: Try to find by exact actionName match (most reliable)
+      const normalizedQuery = actionQuery.toLowerCase().replace(/\s+/g, ' ').trim();
+      const normalizedForName = normalizedQuery.replace(/\s+/g, '_');
+
+      // Try variations of the query as potential action names
+      const nameVariations = [
+        normalizedForName,
+        normalizedQuery.split(' ').slice(0, 2).join('_'),
+        normalizedQuery.split(' ')[0]
+      ];
+
+      for (const nameVar of nameVariations) {
+        try {
+          const exactMatch = await this.collections.atomicActions.get({
+            where: { actionName: { $eq: nameVar } },
+            limit: 1
+          });
+
+          if (exactMatch.metadatas?.[0]) {
+            const meta = exactMatch.metadatas[0];
+            logger.debug(`[KB] Exact match found: ${nameVar} → ${meta.methodName}`);
+            return {
+              found: true,
+              bestMatch: {
+                ...meta,
+                parameters: JSON.parse(meta.parameters || '[]'),
+                keywords: JSON.parse(meta.keywords || '[]'),
+                confidence: 0.95,
+                matchType: 'exact_name'
+              },
+              allMatches: [meta],
+              query: actionQuery
+            };
+          }
+        } catch (e) {
+          // Continue to semantic search
+        }
+      }
+
+      // SECOND: Semantic search
       const results = await this.collections.atomicActions.query({
         queryTexts: [queryText],
         nResults: topK,
@@ -285,13 +325,39 @@ class ActionKnowledgeBaseService {
         confidence: Math.max(0, 1 - results.distances[0][index])
       }));
 
-      // Return best match
-      const bestMatch = matches[0];
+      // Boost confidence for keyword matches
+      const queryWords = actionQuery.toLowerCase().split(/\s+/);
+      const boostedMatches = matches.map(match => {
+        const keywords = (match.keywords || []).map(k => k.toLowerCase());
+        const actionName = (match.actionName || '').toLowerCase().replace(/_/g, ' ');
+
+        // Count how many query words match keywords or actionName
+        let keywordBoost = 0;
+        for (const word of queryWords) {
+          if (keywords.some(k => k.includes(word))) keywordBoost += 0.1;
+          if (actionName.includes(word)) keywordBoost += 0.05;
+        }
+
+        // Also boost exact phrase matches
+        const queryPhrase = queryWords.join(' ');
+        if (keywords.some(k => k === queryPhrase)) keywordBoost += 0.3;
+        if (actionName.includes(queryPhrase)) keywordBoost += 0.2;
+
+        return {
+          ...match,
+          keywordBoost,
+          confidence: Math.min(1, match.confidence + keywordBoost)
+        };
+      });
+
+      // Re-sort by boosted confidence
+      boostedMatches.sort((a, b) => b.confidence - a.confidence);
+      const bestMatch = boostedMatches[0];
 
       return {
         found: bestMatch.confidence > 0.4,
         bestMatch,
-        allMatches: matches,
+        allMatches: boostedMatches,
         query: actionQuery
       };
     } catch (error) {
@@ -480,8 +546,8 @@ class ActionKnowledgeBaseService {
 
       const bestMatch = matches[0];
 
-      // Only return if confidence is high enough
-      if (bestMatch.distance > 0.3) {
+      // Only return if confidence is high enough (distance <= 0.35 means ~65% confidence)
+      if (bestMatch.distance > 0.35) {
         return { found: false, query: actionQuery, closestMatch: bestMatch };
       }
 
@@ -1233,6 +1299,27 @@ class ActionKnowledgeBaseService {
         })) || []
       };
     } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Delete a specific item from a collection by ID
+   */
+  async deleteFromCollection(collectionName, id) {
+    if (!this.isInitialized) await this.initialize();
+
+    const collection = this.collections[collectionName];
+    if (!collection) {
+      return { success: false, error: `Unknown collection: ${collectionName}` };
+    }
+
+    try {
+      await collection.delete({ ids: [id] });
+      logger.info(`Deleted item ${id} from ${collectionName}`);
+      return { success: true, id };
+    } catch (error) {
+      logger.error(`Failed to delete ${id} from ${collectionName}: ${error.message}`);
       return { success: false, error: error.message };
     }
   }

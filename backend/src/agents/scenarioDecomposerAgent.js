@@ -123,14 +123,42 @@ EXAMPLE OUTPUT:
       brand = null,
       includeLogin = null,
       forceAI = false,
-      confidenceThreshold = 0.7
+      confidenceThreshold = 0.7,
+      precondition = null
     } = options;
 
     logger.info(`Decomposing scenario: "${scenario.substring(0, 50)}..."`);
 
     try {
+      // STEP 0: If precondition provided, decompose it into prerequisite steps
+      let preconditionSteps = [];
+      if (precondition) {
+        logger.info(`Decomposing precondition: "${precondition.substring(0, 50)}..."`);
+        const precondResult = await this.decomposeWithRules(precondition, { ...options, includeLogin: false });
+        preconditionSteps = (precondResult.steps || []).map(step => ({
+          ...step,
+          isPrerequisite: true,
+          source: 'precondition'
+        }));
+        logger.info(`Precondition decomposed into ${preconditionSteps.length} steps`);
+      }
+
       // STEP 1: Try rule-based decomposition (now enhanced with learned patterns - FREE)
-      const ruleResult = await this.decomposeWithRules(scenario, options);
+      // If we have precondition, skip auto-adding login (precondition handles setup)
+      const ruleResult = await this.decomposeWithRules(scenario, {
+        ...options,
+        includeLogin: precondition ? false : options.includeLogin
+      });
+
+      // Prepend precondition steps to the result
+      if (preconditionSteps.length > 0) {
+        // Filter out duplicate prerequisite steps from main scenario
+        // (login/navigate already covered by precondition)
+        const mainSteps = ruleResult.steps.filter(step =>
+          !step.isPrerequisite || step.source === 'precondition'
+        );
+        ruleResult.steps = [...preconditionSteps, ...mainSteps];
+      }
       const confidence = this.calculateConfidence(ruleResult, scenario);
 
       // Check how many steps came from learned patterns
@@ -350,6 +378,7 @@ EXAMPLE OUTPUT:
         action: match.action,
         target: match.target || primaryScreen || 'screen',
         details: match.details || null,
+        duration: match.duration || null,  // Preserve duration for watch/wait actions
         isPrerequisite: false,
         source: match.source || 'regex'  // Track where the match came from
       });
@@ -386,6 +415,29 @@ EXAMPLE OUTPUT:
   async extractActionsWithLearning(text, options = {}) {
     const actions = [];
     const { platform, brand } = options;
+
+    // FIRST: Check feature patterns on the FULL text before splitting
+    // This prevents patterns like "existing progress (e.g., 15 minutes)" from being
+    // broken up by comma-splitting (the comma inside parentheses would split incorrectly)
+    const featureMatches = this.extractFeaturePatternsFromText(text);
+    if (featureMatches.length > 0) {
+      logger.debug(`[extractActionsWithLearning] Found ${featureMatches.length} feature pattern matches in full text`);
+      for (const match of featureMatches) {
+        actions.push({
+          ...match,
+          source: 'feature_pattern'
+        });
+      }
+      // If we found feature patterns, return them (preconditions often have single complex patterns)
+      // Deduplicate before returning
+      const seen = new Set();
+      return actions.filter(a => {
+        const key = `${a.action}_${a.target}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
 
     // Split scenario into action phrases
     const phrases = this.splitIntoActionPhrases(text);
@@ -548,6 +600,96 @@ EXAMPLE OUTPUT:
   }
 
   /**
+   * Extract feature patterns from full text BEFORE phrase splitting
+   * This handles patterns that contain commas (like "e.g., X minutes") which would
+   * be incorrectly split by splitIntoActionPhrases
+   */
+  extractFeaturePatternsFromText(text) {
+    const actions = [];
+
+    // Feature patterns that need full-text matching (contain commas or complex structures)
+    const featurePatterns = [
+      {
+        // Pattern for "existing progress (e.g., X minutes)" in preconditions
+        regex: /existing\s+progress\s*\(e\.?g\.?,?\s*(\d+)\s*(?:minutes?|mins?)/i,
+        actions: [
+          { action: 'watch', target: 'content', details: 'seek to watch progress position', hasDuration: true }
+        ]
+      },
+      {
+        // Pattern for "has a resume point at X:XX" or "resume point at X minutes"
+        regex: /resume\s+point\s+at\s+(\d+)[:.](\d+)|resume\s+point\s+at\s+(\d+)\s*(?:minutes?|mins?)/i,
+        actions: [
+          { action: 'watch', target: 'content', details: 'seek to resume point', hasDuration: true }
+        ]
+      },
+      {
+        // Pattern for "has progress at X:XX" or "progress at X minutes"
+        regex: /(?:has\s+)?progress\s+at\s+(\d+)[:.](\d+)(?:\s*(?:minutes?|mins?))?|(?:has\s+)?progress\s+at\s+(\d+)\s*(?:minutes?|mins?)/i,
+        actions: [
+          { action: 'watch', target: 'content', details: 'seek to watch progress position', hasDuration: true }
+        ]
+      },
+      {
+        // Pattern for "watched for X minutes" or "played for X minutes"
+        regex: /(?:watched|played)\s+(?:for\s+)?(\d+)\s*(?:minutes?|mins?)/i,
+        actions: [
+          { action: 'watch', target: 'content', details: 'seek to watch progress position', hasDuration: true }
+        ]
+      },
+      {
+        // Pattern for "X minutes of watch progress" or "has X minutes of progress"
+        regex: /(?:has\s+)?(\d+)\s*(?:minutes?|mins?)\s+(?:of\s+)?(?:watch\s+)?progress/i,
+        actions: [
+          { action: 'watch', target: 'content', details: 'seek to watch progress position', hasDuration: true }
+        ]
+      },
+      {
+        // Pattern for "X seconds of progress" or "X seconds of watch progress"
+        regex: /(?:has\s+)?(\d+)\s*(?:seconds?|secs?|s)\s+(?:of\s+)?(?:watch\s+)?progress/i,
+        actions: [
+          { action: 'watch', target: 'content', details: 'seek to watch progress position', hasDuration: true, unit: 'seconds' }
+        ]
+      }
+    ];
+
+    for (const { regex, actions: featureActions } of featurePatterns) {
+      const match = text.match(regex);
+      if (match) {
+        for (const fa of featureActions) {
+          const actionObj = {
+            action: fa.action,
+            target: fa.target,
+            details: fa.details
+          };
+
+          // Extract duration from patterns
+          if (fa.hasDuration && match) {
+            if (match[1] && match[2]) {
+              // Format: X:XX (minutes:seconds)
+              const minutes = parseInt(match[1]);
+              const seconds = parseInt(match[2]);
+              actionObj.duration = { value: minutes * 60 + seconds, unit: 'seconds' };
+            } else if (match[1]) {
+              // Format: X minutes or X seconds (just the first capture group)
+              // Use unit from pattern definition if specified, otherwise default to minutes
+              const unit = fa.unit || 'minutes';
+              actionObj.duration = { value: parseInt(match[1]), unit };
+            } else if (match[3]) {
+              // Format: X minutes (third capture group - for some patterns)
+              actionObj.duration = { value: parseInt(match[3]), unit: 'minutes' };
+            }
+          }
+
+          actions.push(actionObj);
+        }
+      }
+    }
+
+    return actions;
+  }
+
+  /**
    * Extract action-target pairs from text
    */
   extractActionsFromText(text) {
@@ -566,6 +708,118 @@ EXAMPLE OUTPUT:
       return cleaned;
     };
 
+    // SPECIAL FEATURE PATTERNS - detect functionality/feature tests that need specific actions
+    // These produce multiple actions (e.g., "restart functionality" = click restart + verify playback)
+    const featurePatterns = [
+      {
+        regex: /restart\s+functionality|verify\s+restart|test\s+restart/i,
+        actions: [
+          { action: 'click', target: 'restart_button', details: 'click restart button to restart playback' },
+          { action: 'verify', target: 'playback_time', details: 'starts at 00:00' }
+        ]
+      },
+      {
+        // Pattern for "select 'Restart'" or "select Restart" - triggers restart button click
+        regex: /select\s+['"]?restart['"]?|click\s+['"]?restart['"]?/i,
+        actions: [
+          { action: 'click', target: 'restart_button', details: 'click restart button to restart playback' }
+        ]
+      },
+      {
+        // Pattern for "playback starts from 0:0" or "starts at 0:00" - just verify, the click should come from scenario
+        regex: /playback\s+starts?\s+(?:from|at)\s+0[:.]?0|starts?\s+at\s+0[:.]?0/i,
+        actions: [
+          { action: 'verify', target: 'playback_time', details: 'starts at 00:00' }
+        ]
+      },
+      {
+        regex: /resume\s+functionality|verify\s+resume|test\s+resume/i,
+        actions: [
+          { action: 'click', target: 'resume_button', details: 'click resume button to continue playback' },
+          { action: 'verify', target: 'playback_resumes', details: 'from previous position' }
+        ]
+      },
+      {
+        regex: /picture.?in.?picture|pip\s+mode|mini\s+player/i,
+        actions: [
+          { action: 'click', target: 'pip_button', details: 'toggle picture-in-picture mode' },
+          { action: 'verify', target: 'mini_player', details: 'is displayed' }
+        ]
+      },
+      {
+        // Pattern for "has a resume point at X:XX" or "resume point at X minutes" in preconditions
+        regex: /resume\s+point\s+at\s+(\d+)[:.](\d+)|resume\s+point\s+at\s+(\d+)\s*(?:minutes?|mins?)/i,
+        actions: [
+          { action: 'watch', target: 'content', details: 'seek to resume point', hasDuration: true }
+        ]
+      },
+      {
+        // Pattern for "has progress at X:XX" or "progress at X:XX minutes" or "progress at X minutes"
+        // Examples: "User has progress at 15:00 minutes", "has progress at 10:30", "progress at 5 minutes"
+        regex: /(?:has\s+)?progress\s+at\s+(\d+)[:.](\d+)(?:\s*(?:minutes?|mins?))?|(?:has\s+)?progress\s+at\s+(\d+)\s*(?:minutes?|mins?)/i,
+        actions: [
+          { action: 'watch', target: 'content', details: 'seek to watch progress position', hasDuration: true }
+        ]
+      },
+      {
+        // Pattern for "existing progress (e.g., X minutes)" in preconditions
+        regex: /existing\s+progress\s*\(e\.?g\.?,?\s*(\d+)\s*(?:minutes?|mins?)/i,
+        actions: [
+          { action: 'watch', target: 'content', details: 'seek to watch progress position', hasDuration: true }
+        ]
+      },
+      {
+        // Pattern for "Press Ok" / "Press Enter" / "confirm selection" - CTV remote select action
+        regex: /press\s+(?:ok|enter|select)|confirm\s+(?:selection|button)/i,
+        actions: [
+          { action: 'select', target: 'focused_element', details: 'press OK to confirm selection' }
+        ]
+      },
+      {
+        // Pattern for "Observe playback" / "Observe the playback start time" / "observe seek bar"
+        regex: /observe\s+(?:the\s+)?(?:playback|seek\s*bar|time\s*(?:stamp|code)?)\s*(?:start)?/i,
+        actions: [
+          { action: 'verify', target: 'playback_time', details: 'verify playback starts at 00:00' }
+        ]
+      }
+    ];
+
+    // Check for feature patterns first
+    for (const { regex, actions: featureActions } of featurePatterns) {
+      const match = text.match(regex);
+      if (match) {
+        for (const fa of featureActions) {
+          const actionObj = {
+            action: fa.action,
+            target: fa.target,
+            details: fa.details
+          };
+
+          // Extract duration from resume point patterns (e.g., "10:00" or "10 minutes")
+          if (fa.hasDuration && match) {
+            if (match[1] && match[2]) {
+              // Format: X:XX (minutes:seconds)
+              const minutes = parseInt(match[1]);
+              const seconds = parseInt(match[2]);
+              actionObj.duration = { value: minutes * 60 + seconds, unit: 'seconds' };
+            } else if (match[3]) {
+              // Format: X minutes
+              actionObj.duration = { value: parseInt(match[3]), unit: 'minutes' };
+            }
+          }
+
+          actions.push(actionObj);
+        }
+        // Don't return early - allow multiple patterns to match for complex scenarios
+        // return actions;
+      }
+    }
+
+    // If we found feature pattern actions, return them
+    if (actions.length > 0) {
+      return actions;
+    }
+
     // Pattern: "action verb" + optional articles/prepositions + "target"
     // Using (?:a|an|the)\s+ to handle all articles
     const patterns = [
@@ -576,6 +830,10 @@ EXAMPLE OUTPUT:
       { regex: /navigate\s+to\s+(?:(?:the|a|an)\s+)?(\w+(?:\s+\w+)?)/i, action: 'navigate' },
       { regex: /go\s+to\s+(?:(?:the|a|an)\s+)?(\w+(?:\s+\w+)?)/i, action: 'navigate' },
       { regex: /wait\s+(?:for\s+)?(\d+)\s*(seconds?|minutes?)/i, action: 'wait' },
+      { regex: /watch(?:ed)?\s+(?:for\s+)?(\d+)\s*(seconds?|minutes?)/i, action: 'watch' },
+      { regex: /watch(?:ed)?\s+(?:\w+\s+)*?(?:for\s+)?(\d+)\s*(seconds?|minutes?)/i, action: 'watch' },
+      { regex: /play(?:ed)?\s+(?:for\s+)?(\d+)\s*(seconds?|minutes?)/i, action: 'watch' },
+      { regex: /play(?:ed)?\s+(?:\w+\s+)*?(?:for\s+)?(\d+)\s*(seconds?|minutes?)/i, action: 'watch' },
       { regex: /scroll\s+(?:to\s+)?(?:(?:the|a|an)\s+)?(\w+(?:\s+\w+)?)/i, action: 'scroll' },
       { regex: /verify\s+(?:that\s+)?(?:(?:the|a|an)\s+)?(\w+(?:\s+\w+)?)/i, action: 'verify' },
       { regex: /check\s+(?:that\s+)?(?:(?:the|a|an)\s+)?(\w+(?:\s+\w+)?)/i, action: 'verify' },
@@ -590,10 +848,18 @@ EXAMPLE OUTPUT:
       if (match) {
         const target = cleanTarget(match[1]);
         if (target) {
+          // Capture duration info for watch/wait actions
+          let details = match[2] ? `${match[1]} ${match[2]}` : null;
+          if ((action === 'watch' || action === 'wait') && match[1] && match[2]) {
+            // Preserve the full duration expression
+            details = `${match[1]} ${match[2]}`;
+          }
           actions.push({
             action,
-            target,
-            details: match[2] ? `${match[1]} ${match[2]}` : null
+            target: (action === 'watch' || action === 'wait') ? 'content' : target,
+            details,
+            duration: (action === 'watch' || action === 'wait') && match[1] ?
+              { value: parseInt(match[1]), unit: match[2]?.replace(/s$/, '') || 'seconds' } : null
           });
         }
       }
