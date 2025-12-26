@@ -981,6 +981,16 @@ class TestComposerAgent {
         return `${accessor}.${methodName}(${params || '/* duration */'});${comment}`;
       }
 
+      // Pass softAssert to verify methods so they can collect assertions
+      const isVerifyMethod = methodName?.toLowerCase().startsWith('verify') ||
+                             methodName?.toLowerCase().startsWith('check') ||
+                             methodName?.toLowerCase().startsWith('assert');
+      if (isVerifyMethod) {
+        // Verify methods should accept softAssert to collect assertions
+        const verifyParams = params ? `softAssert, ${params}` : 'softAssert';
+        return `${accessor}.${methodName}(${verifyParams});`;
+      }
+
       return `${accessor}.${methodName}(${params});`;
     } else if (step.action || step.status === 'missing') {
       // Unmapped/missing action - generate clear MISSING comment for KB addition

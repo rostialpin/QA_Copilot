@@ -385,6 +385,14 @@ class ComponentGeneratorAgent {
    * Generate method body
    */
   generateMethodBody(actionType, elementName, pattern, details) {
+    const actionLower = actionType.toLowerCase();
+
+    // Verify methods should use softAssert to collect assertions
+    if (actionLower.includes('verify') || actionLower.includes('check') || actionLower.includes('assert')) {
+      const humanReadable = this.generateSimpleName(elementName);
+      return `softAssert.assertTrue(isElementDisplayed(${elementName}), "${humanReadable} should be displayed");`;
+    }
+
     const template = pattern?.template || '// TODO: Implement action';
 
     let body = template
@@ -394,7 +402,7 @@ class ComponentGeneratorAgent {
       .replace('{text}', 'text');
 
     // Add screen navigation for navigate actions
-    if (actionType.toLowerCase().includes('navigate')) {
+    if (actionLower.includes('navigate')) {
       const screen = elementName.charAt(0).toUpperCase() + elementName.slice(1);
       body = `navigateTo${screen}();`;
     }
@@ -407,12 +415,18 @@ class ComponentGeneratorAgent {
    */
   inferParameters(actionType, details) {
     const params = [];
+    const actionLower = actionType.toLowerCase();
 
-    if (actionType.toLowerCase().includes('enter') || actionType.toLowerCase().includes('type')) {
+    // Verify/check/assert methods should accept SoftAssert for collecting assertions
+    if (actionLower.includes('verify') || actionLower.includes('check') || actionLower.includes('assert')) {
+      params.push({ type: 'SoftAssert', name: 'softAssert' });
+    }
+
+    if (actionLower.includes('enter') || actionLower.includes('type')) {
       params.push({ type: 'String', name: 'text' });
     }
 
-    if (actionType.toLowerCase().includes('wait') && details?.includes('second')) {
+    if (actionLower.includes('wait') && details?.includes('second')) {
       params.push({ type: 'int', name: 'seconds' });
     }
 
