@@ -236,18 +236,25 @@ router.post('/generate', async (req, res) => {
 
     logger.info(`Multi-agent generation completed in ${totalTime}ms`);
 
-    // Append generated stubs to code if there are any
-    let finalCode = composedTest.code;
-    if (generatedComponents?.newMethods?.length > 0 || generatedComponents?.newLocators?.length > 0) {
-      finalCode += formatGeneratedStubs(generatedComponents, platform);
-    }
+    // Structure output: test class + screen class updates + properties updates
+    const structuredOutput = formatStructuredOutput(
+      composedTest,
+      generatedComponents,
+      platform,
+      prerequisites.targetScreen
+    );
 
     // Return results
     res.json({
       success: true,
-      code: finalCode,
+      // Main test class code
+      code: structuredOutput.testClass.code,
       className: composedTest.className,
       fullClassName: composedTest.fullClassName,
+
+      // Structured output with all generated files
+      generatedFiles: structuredOutput,
+
       metadata: {
         ...composedTest.metadata,
         precondition: precondition || null
@@ -497,6 +504,132 @@ router.get('/stats', async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
+/**
+ * Format structured output with test class + screen updates + properties updates
+ * Each file is a separate entry that user can approve/reject
+ */
+function formatStructuredOutput(composedTest, generatedComponents, platform, targetScreen) {
+  const output = {
+    testClass: {
+      fileName: `${composedTest.className}.java`,
+      type: 'test',
+      code: composedTest.code,
+      status: 'generated',
+      requiresApproval: false
+    },
+    screenClasses: [],
+    propertiesFiles: []
+  };
+
+  if (!generatedComponents) {
+    return output;
+  }
+
+  // Group methods by screen class
+  const methodsByScreen = {};
+  for (const m of generatedComponents.newMethods || []) {
+    const screenName = m.class || targetScreen || 'GenericScreen';
+    if (!methodsByScreen[screenName]) {
+      methodsByScreen[screenName] = [];
+    }
+    methodsByScreen[screenName].push(m);
+  }
+
+  // Generate screen class update files
+  for (const [screenName, methods] of Object.entries(methodsByScreen)) {
+    const screenCode = formatScreenClassUpdate(screenName, methods);
+    output.screenClasses.push({
+      fileName: `${screenName}.java`,
+      type: 'screen_update',
+      code: screenCode,
+      methods: methods.map(m => m.method?.name),
+      status: 'draft',
+      requiresApproval: true,
+      approvalNote: `Add ${methods.length} new method(s) to ${screenName}.java`
+    });
+  }
+
+  // Group properties by screen
+  const propsByScreen = {};
+  for (const prop of generatedComponents.newProperties || []) {
+    const screenName = prop.file?.replace('.properties', '') || targetScreen || 'GenericScreen';
+    if (!propsByScreen[screenName]) {
+      propsByScreen[screenName] = [];
+    }
+    propsByScreen[screenName].push(prop);
+  }
+
+  // Generate properties file updates
+  for (const [screenName, props] of Object.entries(propsByScreen)) {
+    const propsCode = formatPropertiesFileUpdate(screenName, props, platform);
+    output.propertiesFiles.push({
+      fileName: `${screenName}.properties`,
+      filePath: `resources/elements/unified/${screenName}.properties`,
+      type: 'properties_update',
+      code: propsCode,
+      elements: props.flatMap(p => p.entries?.map(e => e.key.split('.')[0]) || []),
+      status: 'draft',
+      requiresApproval: true,
+      approvalNote: `Add new element locator(s) to ${screenName}.properties`,
+      similarElements: props.flatMap(p => p.similarElements || [])
+    });
+  }
+
+  return output;
+}
+
+/**
+ * Format screen class update with new methods
+ */
+function formatScreenClassUpdate(screenName, methods) {
+  const lines = [];
+  lines.push(`// ============================================================`);
+  lines.push(`// DRAFT: New methods for ${screenName}.java`);
+  lines.push(`// ⚠️  Review and approve before adding to your codebase`);
+  lines.push(`// ============================================================\n`);
+
+  for (const m of methods) {
+    const method = m.method;
+    const params = method.parameters?.map(p => `${p.type} ${p.name}`).join(', ') || '';
+
+    // JavaDoc
+    if (method.javadoc) {
+      lines.push(method.javadoc);
+    }
+
+    // Method signature and body
+    lines.push(`public ${method.returnType} ${method.name}(${params}) {`);
+    lines.push(`    ${method.body}`);
+    lines.push(`}\n`);
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Format properties file update with new locators (MQE format)
+ */
+function formatPropertiesFileUpdate(screenName, properties, platform) {
+  const lines = [];
+  lines.push(`# ============================================================`);
+  lines.push(`# DRAFT: New elements for ${screenName}.properties`);
+  lines.push(`# ⚠️  Review and verify locators before adding to your codebase`);
+  lines.push(`# ============================================================\n`);
+
+  for (const prop of properties) {
+    if (prop.similarElements?.length > 0) {
+      lines.push(`# Similar existing elements: ${prop.similarElements.join(', ')}`);
+    }
+
+    for (const entry of prop.entries || []) {
+      lines.push(`${entry.key}=${entry.value}`);
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
 
 /**
  * Format generated stubs as a comment block to append to test code

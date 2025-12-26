@@ -237,34 +237,62 @@ Default ratio is 1:6. To adjust, modify `SEEK_RATIO` in:
 Add new composite actions via the Knowledge Base API or directly in ChromaDB.
 
 ### Stub Generation for Missing Methods
-When actions cannot be mapped to existing methods, the Component Generator:
-1. Queries RAG for similar locators in existing properties files
-2. Generates DRAFT MQE-format property entries
-3. Marks stubs for user verification
+When actions cannot be mapped to existing methods, the output includes separate files for user approval:
 
+**API Response Structure:**
+```json
+{
+  "generatedFiles": {
+    "testClass": {
+      "fileName": "VerifyRestartFunctionalityTest.java",
+      "code": "...",
+      "requiresApproval": false
+    },
+    "screenClasses": [{
+      "fileName": "ContainerScreen.java",
+      "code": "...",
+      "methods": ["clickSpecialButton"],
+      "status": "draft",
+      "requiresApproval": true,
+      "approvalNote": "Add 1 new method(s) to ContainerScreen.java"
+    }],
+    "propertiesFiles": [{
+      "fileName": "ContainerScreen.properties",
+      "filePath": "resources/elements/unified/ContainerScreen.properties",
+      "code": "...",
+      "elements": ["specialButton"],
+      "status": "draft",
+      "requiresApproval": true,
+      "similarElements": ["defaultButton", "watchList"]
+    }]
+  }
+}
+```
+
+**Screen Class Update (Draft):**
 ```java
-// MISSING ACTION: click special_button
-// Suggested: ContainerScreen.clickSpecialButton()
+// ============================================================
+// DRAFT: New methods for ContainerScreen.java
+// ⚠️  Review and approve before adding to your codebase
+// ============================================================
 
-/* ============================================================
- * DRAFT STUBS FOR MISSING ACTIONS
- * ⚠️  Please verify and update before using in production
- * ============================================================
- *
- * ContainerScreen.java - Add these methods:
- * public void clickSpecialButton() {
- *     clickElement(specialButton);
- * }
- *
- * MQE Properties File Entries (DRAFT - verify before adding)
- * Add to: resources/elements/unified/ContainerScreen.properties
- * Similar existing elements: defaultButton, watchList
- *
- * specialButton.SimpleName=Special Button
- * specialButton.locators.AndroidTV.AllBrands.AllLocales.AllDevices=AndroidUIAutomator::resourceIdMatches(".*:id/specialButton")
- * specialButton.locators.Roku.AllBrands.AllLocales.AllDevices=xpath:://StandardButton[@focused='true' and contains(@name,'Special Button')]
- * specialButton.locators.AppleTV.AllBrands.AllLocales.AllDevices=iOSClassChain::**/XCUIElementTypeButton[`name == "specialButton"`]
- */
+public void clickSpecialButton() {
+    clickElement(specialButton);
+}
+```
+
+**Properties File Update (Draft):**
+```properties
+# ============================================================
+# DRAFT: New elements for ContainerScreen.properties
+# ⚠️  Review and verify locators before adding to your codebase
+# ============================================================
+
+# Similar existing elements: defaultButton, watchList
+specialButton.SimpleName=Special Button
+specialButton.locators.AndroidTV.AllBrands.AllLocales.AllDevices=AndroidUIAutomator::resourceIdMatches(".*:id/specialButton")
+specialButton.locators.Roku.AllBrands.AllLocales.AllDevices=xpath:://StandardButton[@focused='true' and contains(@name,'Special Button')]
+specialButton.locators.AppleTV.AllBrands.AllLocales.AllDevices=iOSClassChain::**/XCUIElementTypeButton[`name == "specialButton"`]
 ```
 
 ---
