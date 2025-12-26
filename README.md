@@ -237,36 +237,65 @@ Default ratio is 1:6. To adjust, modify `SEEK_RATIO` in:
 Add new composite actions via the Knowledge Base API or directly in ChromaDB.
 
 ### Stub Generation for Missing Methods
-When actions cannot be mapped to existing methods, the Component Generator creates stubs:
+When actions cannot be mapped to existing methods, the Component Generator:
+1. Queries RAG for similar locators in existing properties files
+2. Generates DRAFT MQE-format property entries
+3. Marks stubs for user verification
+
 ```java
 // MISSING ACTION: click special_button
 // Suggested: ContainerScreen.clickSpecialButton()
-// Add to Knowledge Base to resolve
 
-/* === GENERATED STUBS FOR MISSING ACTIONS ===
- * Add these to your Page Object classes:
+/* ============================================================
+ * DRAFT STUBS FOR MISSING ACTIONS
+ * ⚠️  Please verify and update before using in production
+ * ============================================================
  *
- * ContainerScreen.java:
+ * ContainerScreen.java - Add these methods:
  * public void clickSpecialButton() {
  *     clickElement(specialButton);
  * }
  *
- * Locator suggestion (CTV):
- * //android.widget.Button[@resource-id="com.example.app:id/specialButton"]
+ * MQE Properties File Entries (DRAFT - verify before adding)
+ * Add to: resources/elements/unified/ContainerScreen.properties
+ * Similar existing elements: defaultButton, watchList
+ *
+ * specialButton.SimpleName=Special Button
+ * specialButton.locators.AndroidTV.AllBrands.AllLocales.AllDevices=AndroidUIAutomator::resourceIdMatches(".*:id/specialButton")
+ * specialButton.locators.Roku.AllBrands.AllLocales.AllDevices=xpath:://StandardButton[@focused='true' and contains(@name,'Special Button')]
+ * specialButton.locators.AppleTV.AllBrands.AllLocales.AllDevices=iOSClassChain::**/XCUIElementTypeButton[`name == "specialButton"`]
  */
 ```
 
 ---
 
-## Manual Test Generation (Legacy)
+## Manual Test Generation
 
-The system also includes a legacy manual test generation flow using:
-- **GeminiService**: Direct LLM-based test generation
-- **PlaywrightService**: Web test generation with self-healing locators
+The system includes a complete **Manual Test Case Generation** workflow:
 
-This approach differs from the multi-agent pipeline - it sends the entire scenario to an LLM in a single prompt rather than decomposing into specialized agents.
+### Workflow
+```
+JIRA Ticket → TestRail Reference → AI Generation → User Review → Save to TestRail → Automate
+     ↓              ↓                    ↓              ↓              ↓              ↓
+  Select       User selects         Generate      Edit/Approve    Push to       Generate
+  ticket       similar tests        test cases    test cases      TestRail      Selenium/Cypress
+```
 
-**Note**: The multi-agent approach provides better accuracy and maintainability. Future work may migrate manual test generation to use the same agent architecture.
+### How It Works
+1. **JIRA Integration**: Connect to JIRA and select a ticket to work with
+2. **TestRail Reference**: User selects similar functionality test cases from TestRail
+3. **AI Generation**: Agent generates manual test cases:
+   - Similar to selected reference tests
+   - Avoids duplication with existing tests
+   - Configurable: number of tests, test types (functional, accessibility, security, performance)
+4. **User Review**: Edit and approve generated test cases
+5. **Save to TestRail**: Push approved tests directly to TestRail
+6. **Automation**: From manual tests, generate automated tests (Selenium/MQE, Cypress)
+
+### Future Enhancement
+The manual test flow could be improved by using the same multi-agent approach as automation:
+- Agent searches for similar tests in vector DB (instead of user selection)
+- Same knowledge base for consistency
 
 ---
 

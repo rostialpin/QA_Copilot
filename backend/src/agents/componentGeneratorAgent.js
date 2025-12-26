@@ -334,106 +334,139 @@ class ComponentGeneratorAgent {
   }
 
   /**
-   * Generate locator for an action
+   * Generate locator for an action using RAG to find similar patterns
    */
-  generateLocator(action, platform, existingPatterns) {
+  async generateLocator(action, platform, existingPatterns, screenName = 'ContainerScreen') {
     const elementName = this.generateElementName(action.target, action.details);
-    const strategy = this.locatorStrategies[platform] || this.locatorStrategies.android;
 
-    // Generate platform-specific locators
-    const locators = {};
-
-    if (platform === 'ctv' || platform === 'android') {
-      locators.android = this.generateAndroidLocator(elementName, strategy);
+    // Query RAG for similar locators in the knowledge base
+    let similarLocators = [];
+    try {
+      if (this.ragService?.isInitialized) {
+        const searchQuery = `${elementName} ${action.target || ''} button element locator`;
+        similarLocators = await this.ragService.queryProperties(searchQuery, { topK: 5 });
+        logger.debug(`Found ${similarLocators.length} similar locators for ${elementName}`);
+      }
+    } catch (error) {
+      logger.debug(`Could not query RAG for locators: ${error.message}`);
     }
 
-    if (platform === 'mobile' || platform === 'ios') {
-      locators.ios = this.generateIOSLocator(elementName);
-    }
-
-    if (platform === 'web' || platform === 'html5') {
-      locators.web = this.generateWebLocator(elementName);
-    }
+    // Generate MQE-format locators based on patterns or defaults
+    const mqeLocators = this.generateMQELocators(elementName, platform, similarLocators);
 
     return {
       element: elementName,
-      strategies: locators,
-      primary: strategy.primary,
+      mqeFormat: mqeLocators,
+      screenName,
+      isDraft: true, // Mark as draft for user verification
+      similarElements: similarLocators.slice(0, 3).map(l => l.elementName || l.id),
       generatedFrom: action
     };
   }
 
   /**
-   * Generate Android locator
+   * Generate MQE-format locators following existing patterns
+   * Format: elementName.locators.Platform.AllBrands.AllLocales.AllDevices=strategy::value
    */
-  generateAndroidLocator(elementName, strategy) {
-    const resourceId = `com.example.app:id/${elementName}`;
-    return [
-      `//android.widget.TextView[@resource-id="${resourceId}"]`,
-      `//android.widget.Button[@resource-id="${resourceId}"]`,
-      `//android.view.View[@content-desc="${elementName}"]`
-    ];
+  generateMQELocators(elementName, platform, similarLocators) {
+    const locators = {};
+
+    // Platform mapping for MQE format
+    const platformMap = {
+      'ctv': ['AndroidTV', 'Roku', 'AppleTV', 'TIZEN', 'LGWebOS', 'VIZIO'],
+      'android': ['Android', 'AndroidTV'],
+      'ios': ['iOS', 'AppleTV'],
+      'mobile': ['iOS', 'Android'],
+      'web': ['TIZEN', 'LGWebOS', 'VIZIO', 'COMCAST', 'COX', 'HISENSETV']
+    };
+
+    const targetPlatforms = platformMap[platform] || platformMap.ctv;
+
+    // Generate SimpleName
+    locators.simpleName = this.generateSimpleName(elementName);
+
+    // Generate locators for each target platform based on patterns
+    for (const plat of targetPlatforms) {
+      const key = `locators.${plat}.AllBrands.AllLocales.AllDevices`;
+      locators[key] = this.generatePlatformLocator(elementName, plat, similarLocators);
+    }
+
+    return locators;
   }
 
   /**
-   * Generate iOS locator
+   * Generate human-readable SimpleName
    */
-  generateIOSLocator(elementName) {
-    return [
-      `//XCUIElementTypeButton[@name="${elementName}"]`,
-      `//XCUIElementTypeStaticText[@name="${elementName}"]`,
-      `//XCUIElementTypeOther[@label="${elementName}"]`
-    ];
+  generateSimpleName(elementName) {
+    // Convert camelCase to space-separated words
+    return elementName
+      .replace(/([A-Z])/g, ' $1')
+      .replace(/^./, str => str.toUpperCase())
+      .trim();
   }
 
   /**
-   * Generate Web locator
+   * Generate platform-specific locator following MQE patterns
    */
-  generateWebLocator(elementName) {
-    return [
-      `//*[@data-testid="${elementName}"]`,
-      `//*[@id="${elementName}"]`,
-      `//button[contains(text(), "${elementName}")]`
-    ];
+  generatePlatformLocator(elementName, platform, similarLocators) {
+    // Try to find a pattern from similar locators
+    const similarForPlatform = similarLocators.find(l =>
+      l.platform === platform || l.content?.includes(platform)
+    );
+
+    // Platform-specific default patterns (MQE format)
+    const patterns = {
+      'AndroidTV': `AndroidUIAutomator::resourceIdMatches(".*:id/${elementName}")`,
+      'Android': `AndroidUIAutomator::resourceIdMatches(".*:id/${elementName}")`,
+      'AppleTV': `iOSClassChain::**/XCUIElementTypeButton[\`name == "${elementName}"\`]`,
+      'iOS': `AccessibilityId::${elementName}`,
+      'Roku': `xpath:://StandardButton[@focused='true' and contains(@name,'${this.generateSimpleName(elementName)}')]`,
+      'TIZEN': `xpath:://button[contains(@class, '${elementName}')]`,
+      'LGWebOS': `xpath:://button[contains(@class, '${elementName}')]`,
+      'VIZIO': `xpath:://button[contains(@class, '${elementName}')]`,
+      'COMCAST': `xpath:://button[contains(@class, '${elementName}')]`,
+      'COX': `xpath:://button[contains(@class, '${elementName}')]`,
+      'HISENSETV': `xpath:://button[contains(@class, '${elementName}')]`
+    };
+
+    return patterns[platform] || `xpath:://*[contains(@id, '${elementName}')]`;
   }
 
   /**
-   * Generate property file entry
+   * Generate MQE property file entry (draft for user verification)
    */
   generatePropertyEntry(action, locator, platform) {
     const elementName = locator.element;
-    const screenPrefix = action.target?.includes('screen') ? '' : 'generic';
+    const screenName = locator.screenName || 'ContainerScreen';
 
     const entries = [];
 
-    // Generate entries for each platform
-    if (locator.strategies.android) {
-      entries.push({
-        key: `${screenPrefix}.${elementName}.android`,
-        value: locator.strategies.android[0],
-        generated: true
-      });
-    }
+    // Add SimpleName entry
+    entries.push({
+      key: `${elementName}.SimpleName`,
+      value: locator.mqeFormat?.simpleName || this.generateSimpleName(elementName),
+      isDraft: true
+    });
 
-    if (locator.strategies.ios) {
-      entries.push({
-        key: `${screenPrefix}.${elementName}.ios`,
-        value: locator.strategies.ios[0],
-        generated: true
-      });
-    }
-
-    if (locator.strategies.web) {
-      entries.push({
-        key: `${screenPrefix}.${elementName}.web`,
-        value: locator.strategies.web[0],
-        generated: true
-      });
+    // Add locator entries for each platform
+    if (locator.mqeFormat) {
+      for (const [key, value] of Object.entries(locator.mqeFormat)) {
+        if (key.startsWith('locators.')) {
+          entries.push({
+            key: `${elementName}.${key}`,
+            value: value,
+            isDraft: true
+          });
+        }
+      }
     }
 
     return {
-      file: `${screenPrefix || 'generic'}.properties`,
+      file: `${screenName}.properties`,
       entries,
+      isDraft: true,
+      verificationNote: 'DRAFT - Please verify locators match your application',
+      similarElements: locator.similarElements || [],
       generatedFrom: action
     };
   }

@@ -500,12 +500,13 @@ router.get('/stats', async (req, res) => {
 
 /**
  * Format generated stubs as a comment block to append to test code
+ * Uses MQE properties format for locators
  */
 function formatGeneratedStubs(generatedComponents, platform) {
   const lines = ['\n'];
   lines.push('/* ============================================================');
-  lines.push(' * GENERATED STUBS FOR MISSING ACTIONS');
-  lines.push(' * Add these to your Page Object classes to resolve MISSING comments above');
+  lines.push(' * DRAFT STUBS FOR MISSING ACTIONS');
+  lines.push(' * ⚠️  Please verify and update before using in production');
   lines.push(' * ============================================================ */\n');
 
   // Group methods by class
@@ -519,7 +520,7 @@ function formatGeneratedStubs(generatedComponents, platform) {
   // Format methods for each class
   for (const [className, methods] of Object.entries(methodsByClass)) {
     lines.push(`/*`);
-    lines.push(` * ${className}.java:`);
+    lines.push(` * ${className}.java - Add these methods:`);
     for (const m of methods) {
       const method = m.method;
       const params = method.parameters?.map(p => `${p.type} ${p.name}`).join(', ') || '';
@@ -534,16 +535,26 @@ function formatGeneratedStubs(generatedComponents, platform) {
     lines.push(` */\n`);
   }
 
-  // Format locators
-  if (generatedComponents.newLocators?.length > 0) {
+  // Format MQE properties
+  if (generatedComponents.newProperties?.length > 0) {
     lines.push(`/*`);
-    lines.push(` * Suggested Locators (${platform || 'generic'}):`);
-    for (const loc of generatedComponents.newLocators) {
-      const strategies = loc.strategies || {};
-      const platformLocators = strategies[platform] || strategies.android || [];
-      lines.push(` * ${loc.element}:`);
-      for (const xpath of platformLocators.slice(0, 2)) {
-        lines.push(` *   ${xpath}`);
+    lines.push(` * ============================================================`);
+    lines.push(` * MQE Properties File Entries (DRAFT - verify before adding)`);
+    lines.push(` * Add to: resources/elements/unified/<ScreenName>.properties`);
+    lines.push(` * ============================================================`);
+
+    for (const prop of generatedComponents.newProperties) {
+      lines.push(` *`);
+      lines.push(` * File: ${prop.file}`);
+      if (prop.verificationNote) {
+        lines.push(` * Note: ${prop.verificationNote}`);
+      }
+      if (prop.similarElements?.length > 0) {
+        lines.push(` * Similar existing elements: ${prop.similarElements.join(', ')}`);
+      }
+      lines.push(` *`);
+      for (const entry of prop.entries || []) {
+        lines.push(` * ${entry.key}=${entry.value}`);
       }
     }
     lines.push(` */\n`);
