@@ -385,17 +385,29 @@ EXAMPLE OUTPUT:
     }
 
     // Add verification step if "verify" or "check" is in scenario
-    if (scenarioLower.includes('verify') || scenarioLower.includes('check') ||
-        scenarioLower.includes('ensure') || scenarioLower.includes('confirm')) {
-      const verifyTarget = this.extractVerificationTarget(scenarioLower);
-      if (!steps.some(s => s.action === 'verify' && s.target === verifyTarget)) {
-        steps.push({
-          id: stepId++,
-          action: 'verify',
-          target: verifyTarget,
-          details: 'is displayed correctly',
-          isPrerequisite: false
-        });
+    // BUT skip if a verify step was already added by feature patterns (e.g., "restart functionality")
+    const hasFeatureVerifyStep = steps.some(s =>
+      s.action === 'verify' &&
+      (s.source === 'feature_pattern' || s.source === 'learned_pattern' ||
+       s.target === 'playback_time' || s.target === 'playback_resumes')
+    );
+
+    if (!hasFeatureVerifyStep &&
+        (scenarioLower.includes('verify') || scenarioLower.includes('check') ||
+         scenarioLower.includes('ensure') || scenarioLower.includes('confirm'))) {
+      // Don't add generic verify if scenario mentions a specific feature functionality
+      const isFeatureTest = /(?:restart|resume|playback|pip|picture.?in.?picture)\s+functionality/i.test(scenario);
+      if (!isFeatureTest) {
+        const verifyTarget = this.extractVerificationTarget(scenarioLower);
+        if (!steps.some(s => s.action === 'verify' && s.target === verifyTarget)) {
+          steps.push({
+            id: stepId++,
+            action: 'verify',
+            target: verifyTarget,
+            details: 'is displayed correctly',
+            isPrerequisite: false
+          });
+        }
       }
     }
 
@@ -788,11 +800,13 @@ EXAMPLE OUTPUT:
     for (const { regex, actions: featureActions } of featurePatterns) {
       const match = text.match(regex);
       if (match) {
+        logger.debug(`[ScenarioDecomposer] Feature pattern matched: ${regex.toString()}`);
         for (const fa of featureActions) {
           const actionObj = {
             action: fa.action,
             target: fa.target,
-            details: fa.details
+            details: fa.details,
+            source: 'feature_pattern'  // Mark as coming from feature pattern
           };
 
           // Extract duration from resume point patterns (e.g., "10:00" or "10 minutes")
