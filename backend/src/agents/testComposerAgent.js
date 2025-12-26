@@ -737,38 +737,9 @@ class TestComposerAgent {
    */
   generateHelperMethods(mappingResult, indent) {
     const lines = [];
-    const helperMethods = new Set();
-
-    // Collect unique complex actions that warrant helper methods
-    const mappings = mappingResult?.mappings || [];
-
-    for (const mapping of mappings) {
-      if (mapping.isComplex || (mapping.action && mapping.action.includes('verify'))) {
-        const methodName = this.generateHelperMethodName(mapping.action);
-        if (!helperMethods.has(methodName)) {
-          helperMethods.add(methodName);
-
-          const stepDescription = this.escapeJavaString(mapping.action || mapping.details);
-
-          lines.push(`${indent}private static final String ${methodName.toUpperCase()}_STEP = "${stepDescription}";`);
-          lines.push('');
-          lines.push(`${indent}@io.qameta.allure.Step(${methodName.toUpperCase()}_STEP)`);
-          lines.push(`${indent}@com.epam.reportportal.annotations.Step(${methodName.toUpperCase()}_STEP)`);
-          lines.push(`${indent}private void ${methodName}(SoftAssert softAssert) {`);
-
-          // Generate method body
-          if (mapping.className && mapping.methodName) {
-            const accessor = this.screenAccessors[mapping.className] || `${mapping.className.charAt(0).toLowerCase()}${mapping.className.slice(1)}()`;
-            lines.push(`${indent}${indent}${accessor}.${mapping.methodName}();`);
-          } else {
-            lines.push(`${indent}${indent}// TODO: Implement ${mapping.action || 'action'}`);
-          }
-
-          lines.push(`${indent}}`);
-          lines.push('');
-        }
-      }
-    }
+    // NOTE: Removed helper method generation for verify actions
+    // Verify methods are called directly on screen objects, helper methods were never used
+    // This eliminates dead code (VERIFY_STEP constants and unused verify() methods)
 
     return lines;
   }

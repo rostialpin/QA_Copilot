@@ -103,18 +103,33 @@ class ComponentGeneratorAgent {
     const newMethods = [];
     const newProperties = [];
     const newLocators = [];
+    const skippedExisting = [];
 
     for (const action of unmappedActions) {
       try {
-        // Generate method
+        // Check if method already exists in RAG before creating stub
+        const methodExists = await this.checkMethodExists(action, context);
+        if (methodExists) {
+          logger.debug(`[ComponentGenerator] Skipping existing method: ${methodExists.methodName}`);
+          skippedExisting.push({ action: action.action, existingMethod: methodExists.methodName });
+          continue;
+        }
+
+        // Check if locator already exists in RAG
+        const locatorExists = await this.checkLocatorExists(action, context);
+        if (locatorExists) {
+          logger.debug(`[ComponentGenerator] Locator already exists: ${locatorExists.elementName}`);
+        }
+
+        // Generate method only if it doesn't exist
         const method = await this.generateMethod(action, existingPatterns, context);
         if (method) {
           newMethods.push(method);
         }
 
-        // Generate locator and property if needed
-        if (method?.needsLocator) {
-          const locator = this.generateLocator(action, platform, existingPatterns);
+        // Generate locator and property only if needed AND doesn't exist
+        if (method?.needsLocator && !locatorExists) {
+          const locator = await this.generateLocator(action, platform, existingPatterns, targetScreen);
           const property = this.generatePropertyEntry(action, locator, platform);
 
           newLocators.push(locator);
@@ -130,14 +145,99 @@ class ComponentGeneratorAgent {
       newMethods,
       newProperties,
       newLocators,
+      skippedExisting,
       statistics: {
         unmappedCount: unmappedActions.length,
         methodsGenerated: newMethods.length,
         propertiesGenerated: newProperties.length,
-        locatorsGenerated: newLocators.length
+        locatorsGenerated: newLocators.length,
+        skippedExisting: skippedExisting.length
       },
       context
     };
+  }
+
+  /**
+   * Check if a method already exists in RAG
+   */
+  async checkMethodExists(action, context) {
+    try {
+      if (!this.ragService?.isInitialized) return null;
+
+      const methodName = this.inferMethodName(action);
+      const searchQuery = `${methodName} ${action.action || ''} ${action.target || ''}`;
+
+      const results = await this.ragService.queryMethods(searchQuery, {
+        topK: 5,
+        platform: context.platform
+      });
+
+      // Check if any result closely matches the method name
+      for (const result of results || []) {
+        const resultMethod = (result.methodName || result.name || '').toLowerCase();
+        const targetMethod = methodName.toLowerCase();
+
+        if (resultMethod === targetMethod || resultMethod.includes(targetMethod) || targetMethod.includes(resultMethod)) {
+          return { methodName: result.methodName || result.name, className: result.className };
+        }
+      }
+
+      return null;
+    } catch (error) {
+      logger.debug(`Error checking method exists: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Check if a locator already exists in RAG
+   */
+  async checkLocatorExists(action, context) {
+    try {
+      if (!this.ragService?.isInitialized) return null;
+
+      const elementName = this.generateElementName(action.target, action.details);
+      const searchQuery = `${elementName} button element locator`;
+
+      const results = await this.ragService.queryProperties(searchQuery, { topK: 5 });
+
+      // Check if any result closely matches the element name
+      for (const result of results || []) {
+        const resultElement = (result.elementName || result.id || '').toLowerCase();
+        const targetElement = elementName.toLowerCase();
+
+        if (resultElement === targetElement || resultElement.includes(targetElement)) {
+          return { elementName: result.elementName || result.id };
+        }
+      }
+
+      return null;
+    } catch (error) {
+      logger.debug(`Error checking locator exists: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Infer method name from action
+   */
+  inferMethodName(action) {
+    const actionType = (action.action || '').toLowerCase();
+    const target = action.target || '';
+    const elementName = this.generateElementName(target, action.details);
+
+    // Common method name patterns
+    if (actionType.includes('verify') || actionType.includes('check')) {
+      return `verify${elementName.charAt(0).toUpperCase()}${elementName.slice(1)}`;
+    }
+    if (actionType.includes('click') || actionType.includes('tap')) {
+      return `click${elementName.charAt(0).toUpperCase()}${elementName.slice(1)}`;
+    }
+    if (actionType.includes('scroll')) {
+      return `scrollTo${elementName.charAt(0).toUpperCase()}${elementName.slice(1)}`;
+    }
+
+    return `${actionType}${elementName.charAt(0).toUpperCase()}${elementName.slice(1)}`;
   }
 
   /**
